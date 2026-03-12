@@ -70,9 +70,9 @@ from hydra_pspec.utils import form_pseudo_stokes_vis
 # Configuration
 # =============================================================================
 # ── Paths ─────────────────────────────────────────────────────────────────────
-result_dir  = '/nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/100k_runs/'
+result_dir  = '/nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/sim_data/'
 parent_dir  = '/nvme2/scratch/sohini/hydra-pspec-systematic/'
-fig_dir     = '/nvme2/scratch/sohini/Systematics-in-hydra-pspec/Figures'
+fig_dir     = '/nvme2/scratch/sohini/plots-hydra-pspec/Figures_sim_data'
 
 # ── Test cases ────────────────────────────────────────────────────────────────
 run_version_arr = ['low_dl_fr_0', 'high_dl_fr_0', 'low_dl_fr_20']
