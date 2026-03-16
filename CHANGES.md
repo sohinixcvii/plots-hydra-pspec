@@ -1,10 +1,40 @@
-# Cleanup Changes
-
-Changes made during the 2026-03-12 cleanup pass.
+# Changelog
 
 ---
 
-## `plotting_functions.py` (root)
+## 2026-03-16 — Efficiency improvements to plotting notebook
+
+### `paper_plots_c_v2.ipynb` (new file)
+
+Refactored version of `paper_plots_c.ipynb` with major performance and
+correctness improvements.
+
+**Efficiency**
+- Gibbs iteration loop (cell-18) collapsed from 3 separate passes into a
+  single pass over `Niter`; only the three delay-fringe-rate arrays
+  (`sky_dlfr_arr`, `fg_dlfr_arr`, `delta_g_dlfr_arr`) are retained in memory.
+- All-cases loop (cell-20) uses **Welford online mean/variance** and **online
+  Pearson correlation** so the full sample arrays never need to be stored.
+- `lsts_sec`, `dlfr` (lambda wrapping `data_dly_fr` with Blackman–Harris
+  window), and `dlfr_ones` (= `dlfr(ones)`) are computed once in cell-6 and
+  reused throughout; avoids redundant FFT calls on constant arrays.
+
+**Bug fixes**
+- Old cell-43 incorrectly used the single `sys_modes_operator` (built for
+  `case_idx`) when plotting all three cases. Each case now uses its own
+  operator, stored in `corr_maps` and looked up by index.
+
+---
+
+## 2026-03-12 — Code cleanup and waterfall function fixes
+
+### `plotting_codes/plotting_functions.py` — waterfall functions
+
+**Added**
+- `fontsize` and `labelsize` keyword arguments to `plot_waterfalls` so callers
+  can control axis-label and tick-label sizes without monkey-patching rcParams.
+
+### `plotting_functions.py` (root)
 
 **Removed**
 - Dead imports: `os`, `scipy.stats`, `pyuvdata.UVData`, `pathlib.Path`,
@@ -32,9 +62,7 @@ Changes made during the 2026-03-12 cleanup pass.
 - Simplified the dynamic-range clipping logic to a one-liner (`clip_drng`
   reflects that this function always plots the delay–fringe-rate quadrant).
 
----
-
-## `plotting_codes/plotting_functions.py`
+### `plotting_codes/plotting_functions.py` — library cleanup
 
 **Removed**
 - Dead imports: `scipy.stats`, `pathlib.Path`, `matplotlib.colors.LogNorm/Normalize`.
@@ -57,9 +85,7 @@ Changes made during the 2026-03-12 cleanup pass.
 - Added missing docstring to `plot_waterfalls_from_dlfr`.
 - Full docstrings on all functions.
 
----
-
-## `plotting_codes/functions.py`
+### `plotting_codes/functions.py`
 
 **Removed**
 - Commented-out `cost_fn` function block (~10 lines).
@@ -83,25 +109,40 @@ Changes made during the 2026-03-12 cleanup pass.
 - Full NumPy-style docstrings on all functions.
 - Consistent reshape style: `[:, None]` / `[None, :]` for broadcasting.
 
+### `plotting_codes/paper_plots.py`
+
+- Added a deprecation notice noting it is superseded by `../paper_plots_c.py`
+  and contains hardcoded paths.
+
+### New files
+
+- **`.gitignore`** — standard exclusions: `__pycache__/`, `*.pyc`,
+  `.ipynb_checkpoints/`, `paper_plots_c_output.txt`, `.DS_Store`.
+- **`README.md`** — covers repository layout, how to run `paper_plots_c.py`,
+  configuration variables, output file list, CLI tool usage, and dependencies.
+- **`CHANGES.md`** — this file.
+
 ---
 
-## `plotting_codes/paper_plots.py`
+## 2026-03-11 — Notebook-to-script conversion
 
-- Added a deprecation notice at the top of the file noting that it is
-  superseded by `../paper_plots_c.py` and contains hardcoded paths.
+### `paper_plots_c.py` (new file)
+
+`paper_plots_c.ipynb` converted to a standalone Python script (856 lines).
+Produces all paper figures (Figures 1, 3–11) from the command line without
+requiring a Jupyter kernel.
 
 ---
 
-## New files
+## 2026-03-01 — Removed redundant notebooks and scripts
 
-### `.gitignore`
-Added standard exclusions: `__pycache__/`, `*.pyc`, `.ipynb_checkpoints/`,
-`paper_plots_c_output.txt`, `.DS_Store`.
+**Deleted**
+- `clean_paper_plots.ipynb` — superseded by `paper_plots_c.ipynb`.
+- `paper_plots.ipynb` — old monolithic notebook.
+- `paper_plots.py` — old script derived from the above.
+- `paper_plots_andromeda.ipynb` — machine-specific notebook with hardcoded
+  Andromeda paths.
 
-### `README.md`
-New self-explanatory README covering: repository layout, how to run
-`paper_plots_c.py`, configuration variables, output file list, CLI tool
-usage, and the dependency list.
-
-### `CHANGES.md`
-This file.
+**Updated**
+- `100k_runs_paper_plots.ipynb` — brought up to date with current data layout.
+- `paper_plots_c.ipynb` — extended with additional figure cells.
