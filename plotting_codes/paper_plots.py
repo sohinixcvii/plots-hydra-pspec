@@ -1,3 +1,7 @@
+# NOTE: This script is superseded by ../paper_plots_c.py, which is the
+# current version used for paper figures.  This file is kept for reference
+# only.  It contains hardcoded paths to /nvme2/scratch/sohini/... and uses
+# an older set of run configurations that no longer match the paper.
 from astropy import constants, units
 import matplotlib.pyplot as plt
 import numpy as np
