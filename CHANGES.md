@@ -2,6 +2,30 @@
 
 ---
 
+## 2026-03-26 — Documentation update
+
+### `README.md`
+
+**Updated**
+- Added `paper_plots_c_v2.ipynb` to the repository layout table.
+- Added **Optimised notebook** section describing v1 vs v2 memory and
+  correctness differences (144 GB → 144 MB; Welford/online-Pearson statistics;
+  per-case `sys_modes_operator` fix).
+- Expanded **Outputs** table to include v2 figures (5 v2, 6 v2, 7 v2).
+- Added **Expected result directory layout** block listing all required `.npy`
+  files and their shapes.
+- Added `fontsize`/`labelsize` kwargs to `plotting_functions.py` function table.
+- Added `plotting_codes/plotting_functions.py` function table with all diagnostic
+  functions (`plot_inputs`, `plot_matrices`, `plot_results`, `master_plotter`,
+  `plot_dps`).
+- Added `Figures_sim_data/` to the repository layout tree.
+
+### `CHANGES.md`
+
+- Added this entry.
+
+---
+
 ## 2026-03-16 — Efficiency improvements to plotting notebook
 
 ### `paper_plots_c_v2.ipynb` (new file)
