@@ -9,6 +9,7 @@ from uvtools.plot import waterfall
 def plot_waterfalls(data, freqs, times, windows=None, mode='log', fig=None, ax=None, xlabel=None,
                     vmin=None, vmax=None, cmap='inferno', dynamic_range=None, limit_drng='all',
                     baseline=None, horizon_color='magenta', plot_limits=None, colorbar_flag=True,
+                    ylab_flag=True,
                     freq_window_kwargs=None, time_window_kwargs=None):
     """
     Plot visibility data in the delay–fringe-rate domain.
@@ -95,7 +96,8 @@ def plot_waterfalls(data, freqs, times, windows=None, mode='log', fig=None, ax=N
     if xlabel is None:
         xlabel = "Delay [ns]"
     ax.set_xlabel(xlabel, color='black')
-    ax.set_ylabel("Fringe Rate [mHz]", color='black')
+    if ylab_flag:
+        ax.set_ylabel("Fringe Rate [mHz]", color='black')
 
     # Axis limits: use plot_limits overrides or the full extent
     extent = (dlys.min(), dlys.max(), fringe_rates.max(), fringe_rates.min())
@@ -139,6 +141,7 @@ def plot_waterfalls(data, freqs, times, windows=None, mode='log', fig=None, ax=N
 
 def plot_waterfalls_from_dlfr(data_dlfr, freqs, times, mode='log', fig=None, ax=None, xlabel=None,
                                vmin=None, vmax=None, cmap='inferno', dynamic_range=None, limit_drng='all',
+                               ylab_flag=True,
                                baseline=None, horizon_color='magenta', plot_limits=None,
                                colorbar_flag=True, cbar_label=None):
     """
@@ -204,7 +207,8 @@ def plot_waterfalls_from_dlfr(data_dlfr, freqs, times, mode='log', fig=None, ax=
     if xlabel is None:
         xlabel = "Delay [ns]"
     ax.set_xlabel(xlabel, color='black')
-    ax.set_ylabel("Fringe Rate [mHz]", color='black')
+    if ylab_flag:
+        ax.set_ylabel("Fringe Rate [mHz]", color='black')
 
     extent = (dlys.min(), dlys.max(), fringe_rates.max(), fringe_rates.min())
     xlimits, ylimits = extent[:2], extent[2:]
