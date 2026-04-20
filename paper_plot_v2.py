@@ -262,12 +262,12 @@ paper_map = LinearSegmentedColormap.from_list('my gradient', (
     (1.000, (0.537, 0.016, 0.239))))
 
 paper_map_pink = LinearSegmentedColormap.from_list('my_gradient', (
-    (0.000, (0.933, 0.957, 0.929)),
+    (0.000, (1.000, 1.000, 1.000)),
     (0.500, (0.737, 0.486, 0.584)),
     (1.000, (0.537, 0.016, 0.239))))
 
 paper_map_blue = LinearSegmentedColormap.from_list('my gradient', (
-    (0.000, (0.933, 0.957, 0.929)),
+    (0.000, (1.000, 1.000, 1.000)),
     (0.500, (0.553, 0.663, 0.769)),
     (1.000, (0.012, 0.114, 0.267))))
 

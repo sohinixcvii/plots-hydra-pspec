@@ -78,15 +78,16 @@ mpl.rcParams['mathtext.fontset'] = 'stix'
 mpl.rcParams['font.family']      = 'STIXGeneral'
 plt.rcParams.update({'font.size': 28})
 
-paper_map = LinearSegmentedColormap.from_list('my_gradient', (
+LinearSegmentedColormap.from_list('my gradient', (
+    # Edit this gradient at https://eltos.github.io/gradient/#031D44-8DA9C4-FFFFFF-BC7C95-89043D
     (0.000, (0.012, 0.114, 0.267)),
     (0.250, (0.553, 0.663, 0.769)),
-    (0.500, (0.933, 0.957, 0.929)),
+    (0.500, (1.000, 1.000, 1.000)),
     (0.750, (0.737, 0.486, 0.584)),
     (1.000, (0.537, 0.016, 0.239))))
 
 paper_map_pink = LinearSegmentedColormap.from_list('my_gradient', (
-    (0.000, (0.933, 0.957, 0.929)),
+    (0.000, (1.000, 1.000, 1.000)),
     (0.500, (0.737, 0.486, 0.584)),
     (1.000, (0.537, 0.016, 0.239))))
 
