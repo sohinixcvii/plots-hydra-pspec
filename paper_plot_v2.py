@@ -82,7 +82,7 @@ Nfreqs   = 60   # number of frequency channels
 Nfgmodes = 10   # number of foreground modes
 
 # ── Run parameters ────────────────────────────────────────────────────────────
-Niter         = 100000  # number of Gibbs iterations
+Niter         = 100  # number of Gibbs iterations
 conf_interval = 95      # confidence interval for DPS plots (%)
 Nburn         = 10      # burn-in (%)
 
