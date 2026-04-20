@@ -51,7 +51,7 @@ nm_list_arr = [
 Ntimes   = 80
 Nfreqs   = 60
 Nfgmodes = 10
-Niter    = 100000
+Niter    = 100
 
 # ── True systematic amplitudes ────────────────────────────────────────────────
 sys_amps_true = np.array([1. + 4j, 2 + 3j, 3. + 2j, 4. + 1j])
@@ -78,7 +78,7 @@ mpl.rcParams['mathtext.fontset'] = 'stix'
 mpl.rcParams['font.family']      = 'STIXGeneral'
 plt.rcParams.update({'font.size': 28})
 
-LinearSegmentedColormap.from_list('my gradient', (
+paper_map = LinearSegmentedColormap.from_list('my gradient', (
     # Edit this gradient at https://eltos.github.io/gradient/#031D44-8DA9C4-FFFFFF-BC7C95-89043D
     (0.000, (0.012, 0.114, 0.267)),
     (0.250, (0.553, 0.663, 0.769)),
