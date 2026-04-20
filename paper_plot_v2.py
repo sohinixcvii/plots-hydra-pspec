@@ -253,10 +253,11 @@ mpl.rcParams['mathtext.fontset'] = 'stix'
 mpl.rcParams['font.family']      = 'STIXGeneral'
 plt.rcParams.update({'font.size': 34})
 
-paper_map = LinearSegmentedColormap.from_list('my_gradient', (
+paper_map = LinearSegmentedColormap.from_list('my gradient', (
+    # Edit this gradient at https://eltos.github.io/gradient/#031D44-8DA9C4-FFFFFF-BC7C95-89043D
     (0.000, (0.012, 0.114, 0.267)),
     (0.250, (0.553, 0.663, 0.769)),
-    (0.500, (0.933, 0.957, 0.929)),
+    (0.500, (1.000, 1.000, 1.000)),
     (0.750, (0.737, 0.486, 0.584)),
     (1.000, (0.537, 0.016, 0.239))))
 
@@ -934,7 +935,7 @@ axs[0].legend(fontsize=30)
 axs[0].set_ylim(1e-8, 1e7)
 axs[0].axvspan(-350, 350, facecolor=colors[1], ec=colors[1],alpha=0.2, zorder=0.1)
 axs[0].set_ylabel(r'$P(k_\parallel)$ [Arbitrary Units]', fontsize=30)
-
+axs[0].tick_params(length=8)
 # --------------------- bottom plot ----------------------
 pa = plot_arr[0][keep]
 da = data_arr_errs[0][:, keep]
@@ -950,6 +951,7 @@ axs[1].axvspan(-350, 350, facecolor=colors[1], ec=colors[1],alpha=0.2, zorder=0.
 axs[1].set_ylim(-0.6,0.6)
 axs[1].set_xlabel('Delays [ns]')
 axs[1].set_ylabel('Fractional Errors')
+axs[1].tick_params(length=8)
 # axs.yaxis.set_major_formatter(LogFormatterSciNotation())
 plt.savefig(fig_dir + '/errors_components.pdf', bbox_inches='tight', dpi=300)
 print("Component errors saved, (6/10)")
@@ -1207,7 +1209,7 @@ fig, ax = plot_correlation_matrix(
     param_sizes = param_sizes,
     cmap        = paper_map,       # see note below
     fontsize = 40,
-    figsize     = (35, 35),
+    figsize     = (25, 25),
 )
 plt.savefig(fig_dir + '/correlation_matrix.pdf', bbox_inches='tight', dpi=300)
 print("Correlation matrix saved, (10/10)")
