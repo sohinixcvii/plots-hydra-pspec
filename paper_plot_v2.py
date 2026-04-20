@@ -1034,7 +1034,7 @@ for i, run_version in enumerate(run_version_arr):
         delays[35:50].value + i * 10, dps_pwm[35:50], yerr=np.abs(dps_err[:, 35:50]),
         color=colors[i], ls='', marker='o', elinewidth=2, capsize=3, label='Case ' + fig_labels_dps[i],
     )
-    print(np.mean((dps_pwm - ps_true_i) / ps_true_i))
+    print("Mean fractional error for Case {}: {}".format(fig_labels_dps[i], np.mean((dps_pwm - ps_true_i) / ps_true_i)))
 
 ps_true_ref = calc_ps(np.load(result_dir + run_version_arr[0] + '/eor_true.npy')[:Ntimes, :Nfreqs])
 
