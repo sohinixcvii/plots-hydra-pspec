@@ -744,7 +744,7 @@ plt.savefig(fig_dir + '/data_vs_sky_2.pdf', bbox_inches='tight', dpi=300)
 
 case_labels_v2 = ['Case I', 'Case II', 'Case III']
 row_labels_v2  = ['True', r'$\mu$', r'$\sigma$', 'Residuals']
-
+annots_sky_v2  = ['True Sky Visibilities', r'$\mu$', r'$\sigma$', r'Residuals (True - $\mu$)']
 # %% [markdown]
 # ### Figure 5 v2: Sky result waterfalls (all cases)
 
