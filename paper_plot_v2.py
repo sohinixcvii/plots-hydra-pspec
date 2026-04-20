@@ -625,6 +625,7 @@ for ax, label in zip(axs_bot, bbox_labels):
     ax.text(0.95, 0.07, label, bbox=bbox, transform=ax.transAxes, horizontalalignment='right')
 
 plt.savefig(fig_dir + '/data_components.pdf', bbox_inches='tight', dpi=300)
+print("Data componenets saved, (1/10)")
 
 # %% [markdown]
 # ---
@@ -666,7 +667,7 @@ for i, run_version in enumerate(run_version_arr):
 
 axs.cbar_axes[0].colorbar(plot_op, label=r'$\log|\tilde{V}|$')
 plt.savefig(fig_dir + '/test_cases_in_dlfr.pdf', bbox_inches='tight', dpi=300)
-
+print("Test cases in delay-fringe-rate space saved, (2/10)")
 # %% [markdown]
 # ---
 # # Figure 4: Data vs sky (all cases)
@@ -724,7 +725,7 @@ cbar = ax.cbar_axes[0].colorbar(im0)
 cbar.set_label(r'$\log|\tilde{V}|$ [Jy]', size=50)
 cbar.ax.tick_params(labelsize=40)
 plt.savefig(fig_dir + '/data_vs_sky_2.pdf', bbox_inches='tight', dpi=300)
-
+print("Data vs sky (all cases) saved, (3/10)")
 # %% [markdown]
 # ---
 # # Figure 5: Result waterfalls (single case)
@@ -826,7 +827,7 @@ for row, grid in enumerate(grids):
     grid[0].set_ylabel(row_labels_v2[row], fontsize=50, labelpad=8)
 
 plt.savefig(fig_dir + '/result_waterfalls_v2.pdf', bbox_inches='tight', dpi=300)
-
+print("Result waterfalls (all cases) saved, (4/10)")
 # %% [markdown]
 # ---
 # # Figure 6: Systematics result waterfalls (single case)
@@ -910,7 +911,7 @@ for row, grid in enumerate(grids):
     grid[0].set_ylabel(row_labels_v2[row], fontsize=40, labelpad=8)
 
 plt.savefig(fig_dir + '/sys_result_dlfr_waterfalls_v2.pdf', bbox_inches='tight', dpi=300)
-
+print("Systematics result waterfalls (all cases) saved, (5/10)")
 # %%
 fig, axs = plt.subplots(2, 1, figsize=(30, 20))
 
@@ -951,7 +952,7 @@ axs[1].set_xlabel('Delays [ns]')
 axs[1].set_ylabel('Fractional Errors')
 # axs.yaxis.set_major_formatter(LogFormatterSciNotation())
 plt.savefig(fig_dir + '/errors_components.pdf', bbox_inches='tight', dpi=300)
-
+print("Component errors saved, (6/10)")
 # %% [markdown]
 # ## Figure 7 v2: Fractional errors by component – all cases
 
@@ -982,7 +983,7 @@ for run_ver in run_version_arr:
     )
     i=i+1
 plt.savefig(fig_dir + '/bsys_corner_plot.pdf', bbox_inches='tight', dpi=300)
-
+print("Corner plot of b_sys saved, (7/10)")
 # %% [markdown]
 # ---
 # # Figure 9: Systematics fractional error (single case)
@@ -1057,7 +1058,7 @@ for a in ax.flatten():
     a.tick_params(length=8)
 fig.tight_layout()
 plt.savefig(fig_dir + '/delay_power_spectrum_combined.pdf', bbox_inches='tight', dpi=300)
-
+print("Delay power spectra (all cases) saved, (8/10)")
 # %% [markdown]
 # ---
 # # Table 1: ESS and autocorrelation time
@@ -1108,14 +1109,14 @@ for ax in axs:
     ax.set_yticks(yticklocs_fr, labels=yticklabels_fr)
 
 plt.savefig(fig_dir + '/fg_sys_corr.pdf', bbox_inches='tight', dpi=300)
-
+print("FG-systematics pearson correlation saved, (9/10)")
 # %% [markdown]
 # # Correlation matrix
 
 # %%
 eor_gcr_flat = np.abs(eor_gcr[:Niter,-3,:]).reshape(Niter, -1)  # (10000, 4800)
 fg_gcr_flat = np.abs(fg_amps_gcr[:Niter,-3,:]).reshape(Niter, -1)  # (10000, 4800)
-samples_all = np.concatenate([fg_gcr_flat, np.abs(b_sys_gcr)], axis=1)  # (10000, 4816)
+samples_all = np.concatenate([fg_gcr_flat, np.abs(b_sys_gcr[:Niter,:])], axis=1)  # (10000, 4816)
 
 # %%
 cov_samples = np.cov(samples_all, rowvar=False)  # (4816, 4816)
@@ -1209,7 +1210,7 @@ fig, ax = plot_correlation_matrix(
     figsize     = (35, 35),
 )
 plt.savefig(fig_dir + '/correlation_matrix.pdf', bbox_inches='tight', dpi=300)
-
+print("Correlation matrix saved, (10/10)")
 # %%
 eor_gcr_flat = np.abs(eor_gcr[:Niter,:,20]).reshape(Niter, -1)  # (10000, 4800)
 samples_all = np.concatenate([eor_gcr_flat,eor_gcr_flat], axis=1)  # (10000, 4816)
