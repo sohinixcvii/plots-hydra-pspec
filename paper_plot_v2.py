@@ -253,23 +253,25 @@ mpl.rcParams['mathtext.fontset'] = 'stix'
 mpl.rcParams['font.family']      = 'STIXGeneral'
 plt.rcParams.update({'font.size': 34})
 
+# ── Diverging (teal ↔ berry) ──────────────────────────────────────────────────
 paper_map = LinearSegmentedColormap.from_list('my gradient', (
-    # Edit this gradient at https://eltos.github.io/gradient/#031D44-8DA9C4-FFF0F6-BC7C95-89043D
-    (0.000, (0.012, 0.114, 0.267)),
-    (0.250, (0.553, 0.663, 0.769)),
-    (0.500, (1.000, 0.941, 0.965)),
-    (0.750, (0.737, 0.486, 0.584)),
-    (1.000, (0.537, 0.016, 0.239))))
+    (0.000, (0.043, 0.329, 0.431)),
+    (0.250, (0.306, 0.635, 0.710)),
+    (0.500, (0.957, 0.953, 0.961)),
+    (0.750, (0.816, 0.412, 0.494)),
+    (1.000, (0.627, 0.118, 0.220))))
 
+# ── Sequential (near-white → berry) ──────────────────────────────────────────
 paper_map_pink = LinearSegmentedColormap.from_list('my_gradient', (
-    (0.000, (1.000, 0.941, 0.965)),
-    (0.500, (0.737, 0.486, 0.584)),
-    (1.000, (0.537, 0.016, 0.239))))
+    (0.000, (0.965, 0.953, 0.957)),
+    (0.500, (0.816, 0.412, 0.494)),
+    (1.000, (0.627, 0.118, 0.220))))
 
+# ── Sequential (near-white → teal) ───────────────────────────────────────────
 paper_map_blue = LinearSegmentedColormap.from_list('my gradient', (
-    (0.000,  (1.000, 0.941, 0.965)),
-    (0.500, (0.553, 0.663, 0.769)),
-    (1.000, (0.012, 0.114, 0.267))))
+    (0.000, (0.953, 0.957, 0.965)),
+    (0.500, (0.306, 0.635, 0.710)),
+    (1.000, (0.043, 0.329, 0.431))))
 
 colors = ['#1d3557', '#ca6702', '#81babc', '#e63946', "#ff8fba"]
 dynamic_range = 5
@@ -559,7 +561,7 @@ axs_bot = ImageGrid(fig, rect=(0.06, 0.06, 0.78, 0.28), **grid_kwargs)
 # --- Plot top row ---
 data_top = [eor_true.T, fg_true.T, delta_g_true.T]
 for ax, data in zip(axs_top, data_top):
-    im_top = ax.imshow(np.abs(data).T, cmap=paper_map_pink, origin='lower')
+    im_top = ax.imshow(np.abs(data).T, cmap=paper_map_blue, origin='lower')
     ax.tick_params(direction='out', length=6, width=2, colors='black', size=10)
 
 # --- Plot bottom row ---
@@ -572,7 +574,7 @@ for ax, data in zip(axs_bot, data_bot):
         fig           = fig,
         ax            = ax,
         colorbar_flag = False,
-        cmap          = paper_map_pink,
+        cmap          = paper_map_blue,
         mode          = 'abs',
         ylab_flag = False,
     )
@@ -648,7 +650,7 @@ axs = ImageGrid(
 
 _ = plot_waterfalls_from_dlfr(
     sky_true_dlfr, freqs * 1e6, times_jd, fig=fig, ax=axs[0], mode='log',
-    vmin=0, vmax=4, cmap=paper_map_pink, dynamic_range=5, limit_drng='all',
+    vmin=0, vmax=4, cmap=paper_map_blue, dynamic_range=5, limit_drng='all',
     baseline=None, horizon_color='magenta', colorbar_flag=False,
 )
 axs[0].text(0.95, 0.07, 'True Sky', bbox=bbox, transform=axs[0].transAxes, horizontalalignment='right')
@@ -661,7 +663,7 @@ for i, run_version in enumerate(run_version_arr):
     total_data_dlfr = dlfr(sys_model_true * (eor_true+fg_true))
     plot_op = plot_waterfalls_from_dlfr(
         total_data_dlfr, freqs * 1e6, times_jd, fig=fig, ax=axs[i + 1], mode='log',
-        vmin=0, vmax=4, cmap=paper_map_pink, dynamic_range=5, limit_drng='all', colorbar_flag=False,
+        vmin=0, vmax=4, cmap=paper_map_blue, dynamic_range=5, limit_drng='all', colorbar_flag=False,
         baseline=None, horizon_color='magenta',
     )
     axs[i + 1].text(0.95, 0.07, fig_labels[i], bbox=bbox, transform=axs[i + 1].transAxes, horizontalalignment='right')
@@ -691,19 +693,19 @@ c = 0
 for a in range(3):
     im0 = plot_waterfalls_from_dlfr(
         data_true_dlfr_all[a], freqs * 1e6, times_jd, fig=fig, ax=ax[c], mode='log',
-        vmin=0, vmax=4, cmap=paper_map_pink, dynamic_range=dynamic_range,
+        vmin=0, vmax=4, cmap=paper_map_blue, dynamic_range=dynamic_range,
         limit_drng='all', colorbar_flag=False, baseline=None, horizon_color='magenta',
     )
     c += 1
     im1 = plot_waterfalls_from_dlfr(
         mean_sky_dlfr_all[a], freqs * 1e6, times_jd, fig=fig, ax=ax[c], mode='log',
-        vmin=0, vmax=2.5, cmap=paper_map_pink, dynamic_range=dynamic_range,
+        vmin=0, vmax=2.5, cmap=paper_map_blue, dynamic_range=dynamic_range,
         limit_drng='all', colorbar_flag=False, baseline=None, horizon_color='magenta',
     )
     c += 1
     im2 = plot_waterfalls_from_dlfr(
         delta_g_dlfr_mean_all[a], freqs * 1e6, times_jd, fig=fig, ax=ax[c], mode='log',
-        vmin=0, vmax=1, cmap=paper_map_pink, dynamic_range=dynamic_range,
+        vmin=0, vmax=1, cmap=paper_map_blue, dynamic_range=dynamic_range,
         limit_drng='all', colorbar_flag=False, baseline=None, horizon_color='magenta',
     )
     c += 1
@@ -775,7 +777,7 @@ for row in range(4):
     grids.append(grid)
 
 # --- Plotting ---
-cmap_list  = [paper_map_pink, paper_map_pink, paper_map_blue, paper_map]
+cmap_list  = [paper_map_blue, paper_map_blue, paper_map_pink, paper_map]
 mode_list  = ['log', 'log', 'real', 'real']
 vmin_list  = [None, None, 0, -1]
 vmax_list  = [None, None, 1,  1]
@@ -865,7 +867,7 @@ for row in range(4):
     )
     grids.append(grid)
 
-cmap_list  = [paper_map_pink, paper_map_pink, paper_map_blue, paper_map]
+cmap_list  = [paper_map_blue, paper_map_blue, paper_map_pink, paper_map]
 mode_list  = ['log', 'log', 'real', 'real']
 vmin_list  = [0,    0,    0,     -0.02]
 vmax_list  = [1,    1,    0.01,   0.02]

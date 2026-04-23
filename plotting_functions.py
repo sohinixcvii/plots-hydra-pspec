@@ -243,7 +243,7 @@ def plot_waterfalls_from_dlfr(data_dlfr, freqs, times, mode='log', fig=None, ax=
         cbar_label = cbar_label + ' ' + vis_label
 
     fig.sca(ax)
-    cax = waterfall(data_dlfr, extent=extent, mode=mode, vmin=vmin, vmax=vmax, cmap=cmap)
+    cax = waterfall(data_dlfr, extent=extent, mode=mode, vmin=vmin, vmax=vmax, cmap=cmap, origin='lower')
     ax.set_xlim(xlimits)
     ax.set_ylim(ylimits)
 
