@@ -14,6 +14,7 @@ estimation using the Gibbs-sampling framework implemented in
 ├── paper_plots_c.py            # Main script — generates all paper figures
 ├── paper_plots_c.ipynb         # Notebook version (source of paper_plots_c.py)
 ├── paper_plots_c_v2.ipynb      # Optimised notebook (recommended; see below)
+├── paper_plots_c_v2_nfgmodes.ipynb  # Same analysis, cases differ in Nfgmodes
 ├── plotting_functions.py       # Waterfall-plot helpers used by paper_plots_c.py
 ├── plot-test-data-results.py   # Standalone EoR delay power spectrum plotter (CLI)
 ├── plot_speed_up.py            # MPI speed-up / scaling plotter (CLI)
@@ -119,6 +120,76 @@ Key improvements over v1:
 | Figure 11 correctness | Used single shared `sys_modes_operator` | Per-case operator (bug fixed) |
 
 The v2 notebook also adds Figures 5 v2, 6 v2, and 7 v2 (all-cases multi-panel versions of the single-case figures).
+
+---
+
+## Varying the foreground model: `paper_plots_c_v2_nfgmodes.ipynb`
+
+Runs every analysis step of `paper_plots_c_v2.ipynb`, but the cases are defined
+differently.  In `paper_plots_c_v2.ipynb` the three cases differ in **where** the
+systematic modes sit in delay–fringe-rate space (`nm_list_arr`).  Here all cases
+share the **same** systematic-mode locations — the Case II values,
+`[(10, 0), (11, 0), (12, 0), (13, 0)]` — and differ only in the number of
+foreground modes `Nfgmodes` given to the Gibbs sampler.
+
+| Aspect | `paper_plots_c_v2.ipynb` | `paper_plots_c_v2_nfgmodes.ipynb` |
+|---|---|---|
+| Cases distinguished by | systematic-mode location | `Nfgmodes` |
+| `nm_list` | one list per case | one shared list (Case II) |
+| `sys_modes_operator` | rebuilt per case | built once, shared |
+| Number of cases | hard-coded 3 | `Ncases = len(run_version_arr)`, any number ≥ 2 |
+| Sample loops | one single-case loop + one all-cases loop | one loop; single-case values index the per-case lists |
+| Sample statistics | full `[Niter, Ntimes, Nfreqs]` arrays | Welford mean/variance + centred co-moment Pearson |
+| Large `.npy` sample files | read fully into memory | memory-mapped (`USE_MMAP`) |
+
+### Configuration
+
+Additional/changed settings relative to `paper_plots_c_v2.ipynb`:
+
+| Variable | Description |
+|---|---|
+| `run_version_arr` | One run sub-directory per `Nfgmodes` case (≥ 2). The **Available runs** cell lists the sub-directories of `result_dir` with the `Nfgmodes` recorded in each `fgmodes.npy`. |
+| `Nfgmodes_arr` | Foreground modes per case. `None` = take it from that run's `fgmodes.npy` (recommended); an explicit smaller integer uses only the leading modes. |
+| `nm_list` | Single shared systematic-mode list, used for every case. |
+| `SAVE_FIGS` | Write PDFs to `fig_dir` (created if missing). |
+| `USE_MMAP` | Memory-map `gcr-eor.npy` and `fg-amps.npy` instead of loading them. |
+| `fg_amp_time_idx` | LST index of the FG amplitudes used for the parameter correlation matrix. |
+
+### Outputs
+
+All figures are written to `fig_dir` with an `_nfg` suffix so they never
+overwrite the main paper figures.
+
+| Figure | File | Description |
+|---|---|---|
+| 1 | `data_components_nfg.pdf` | True EoR / FG / systematics in visibility and delay–fringe-rate space (shared by all cases) |
+| 2 | `data_in_dlfr_nfg.pdf` | True sky, true data, and the mean **recovered** data model per `Nfgmodes` |
+| 3 | `result_waterfalls_nfg.pdf` | True / mean / std / residual sky, one column per case |
+| 4 | `sys_result_dlfr_waterfalls_nfg.pdf` | Systematics recovery, one column per case |
+| 5 | `errors_components_nfg.pdf` | Component power spectra and EoR residuals, all cases overlaid |
+| 6 | `bsys_corner_plot_nfg.pdf` | Corner plot of `b_sys`, all cases overplotted |
+| 7 | `delay_power_spectrum_combined_nfg.pdf` | Delay power spectra, all cases (full + zoom on the systematic delays) |
+| 8 | `fg_sys_corr_nfg.pdf` | Foreground–systematics Pearson correlation, one panel per case |
+| 9 | `correlation_matrix_nfg.pdf` | `<a_fg, b_sys>` correlation matrices (the FG block grows with `Nfgmodes`) |
+
+Table 1 (ESS and autocorrelation times) is printed to stdout.
+
+### Notes
+
+- Because the true sky, the true gain and the systematic-mode locations are the
+  same for every case, all *input* quantities are case-independent; only
+  sample-derived quantities differ.  Figure 2 was re-cast accordingly (it showed
+  the true data once per case in `paper_plots_c_v2.ipynb`, which would be three
+  identical panels here).
+- The notebook self-tests its online estimators against the direct
+  all-samples-in-memory calculation before using them, and cross-checks that
+  every run really does share the same `eor_true`, `fg_true` and `gain_true`.
+- Pearson *r* is invariant under a constant offset, so the foreground–gain
+  correlation is accumulated against `DLFR(Hb_sys)` rather than
+  `DLFR(1 + Hb_sys) = dlfr_ones + DLFR(Hb_sys)`.  The two are equal in exact
+  arithmetic, but `dlfr_ones` is a spike of `Ntimes*Nfreqs` at the
+  zero-delay/zero-fringe-rate pixel, so adding it first destroys the sample
+  scatter in that pixel.
 
 ---
 

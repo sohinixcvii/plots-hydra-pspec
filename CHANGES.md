@@ -2,6 +2,78 @@
 
 ---
 
+## 2026-08-19 — Notebook for varying the number of foreground modes
+
+### `paper_plots_c_v2_nfgmodes.ipynb` (new file)
+
+Reproduces every analysis step of `paper_plots_c_v2.ipynb` for cases that share
+the **same** systematic-mode locations (the Case II values,
+`[(10, 0), (11, 0), (12, 0), (13, 0)]`) and differ only in `Nfgmodes`.
+
+**Case handling**
+- `nm_list` is a single shared list; `sys_modes_operator`, `delta_g_true` and
+  the true sky/gain/data are built once instead of per case.
+- `Ncases = len(run_version_arr)` throughout — every figure grid, colour list,
+  hatch list and loop takes any number of cases ≥ 2 instead of a hard-coded 3.
+- `Nfgmodes_arr` gives the foreground modes per case; `None` entries are filled
+  in from each run's `fgmodes.npy`.  `fgmodes` and `fg-amps` are sliced to that
+  value consistently everywhere (v2 mixed the full and sliced bases between the
+  power spectra and the visibility model).
+- New **Available runs** cell lists the sub-directories of `result_dir` with the
+  `Nfgmodes` in each `fgmodes.npy` and any missing result files.
+- New validation cell resolves `Nfgmodes_arr`, warns on duplicate values, and
+  builds the per-case labels/colours.
+- Cross-checks that every run really does share the same `eor_true`, `fg_true`
+  and `gain_true`, and that `gain_true == 1 + H b_sys_true`.
+
+**Efficiency / correctness**
+- The v2 single-case loop and all-cases loop are merged into **one** pass per
+  case; the single-case figures index the per-case lists instead of re-running
+  the samples.
+- Statistics come from `OnlineMoments` (Welford) and `OnlinePearson` (centred
+  co-moment).  v2's cell-15 declared online accumulators but still allocated
+  four `[Niter, Ntimes, Nfreqs]` arrays (`fgd_all`, `sysd_all`, `sky_d_arr`,
+  `dg_d_arr`) and computed from those — 76.8 GB each at `Niter = 100000`.
+- `gcr-eor.npy` and `fg-amps.npy` are memory-mapped (`USE_MMAP`).
+- The Pearson accumulator uses the centred co-moment update rather than
+  "sum of squares minus square of sums", which cancels catastrophically here.
+- The foreground–gain correlation is accumulated against `DLFR(Hb_sys)` instead
+  of `dlfr_ones + DLFR(Hb_sys)`.  Pearson *r* is invariant under the constant,
+  and `dlfr_ones` is a spike of `Ntimes*Nfreqs` at the zero-delay/zero-fringe-rate
+  pixel that otherwise swamps the sample scatter there.
+- Helper functions are defined **before** the derived-parameters cell.  In
+  `paper_plots_c_v2.ipynb`, cell-6 calls `compute_dlfr` (defined in cell-8) and
+  uses `times_jd` (assigned later in cell-6 itself), so that cell cannot be run
+  top-to-bottom in a fresh kernel.
+- The EoR residual panel divides by the **per-delay-bin** sample scatter; v2
+  divided by a single global scalar `np.std(ps_sample)` while labelling the axis
+  as a per-bin z-score.
+- Notebook self-tests `OnlineMoments`/`OnlinePearson` against the direct
+  calculation before using them.
+
+**Figures**
+- Nine figures, all suffixed `_nfg` and written to `fig_dir` (default
+  `.../Figures/nfgmodes`) so they never overwrite the main paper figures.
+  `SAVE_FIGS` controls writing; the saves that were commented out in v2
+  (`errors_components`, `delay_power_spectrum_combined`, `fg_sys_corr`) are
+  active here.
+- Figure 2 re-cast: v2 showed the true data once per case, which distinguished
+  the cases only because they had different systematic-mode locations.  It now
+  shows the shared true sky and true data followed by the mean **recovered**
+  data model per `Nfgmodes`.
+- Figure 5 (component errors) and Figure 7 (delay power spectra) overlay all
+  cases; the shared systematic-delay band and lines are drawn once, and the
+  zoom window is derived from `nm_list` instead of being hard-coded.
+- Figure 9 uses per-case `param_sizes = [Nfgmodes_i, Nsysmodes]` (v2 hard-coded
+  `[10, 4]`), and restores the global font size afterwards.
+
+### `README.md`
+
+- Added `paper_plots_c_v2_nfgmodes.ipynb` to the repository layout and a section
+  describing its case definition, configuration, outputs and caveats.
+
+---
+
 ## 2026-03-26 — Documentation update
 
 ### `README.md`
