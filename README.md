@@ -172,7 +172,53 @@ overwrite the main paper figures.
 | 8 | `fg_sys_corr_nfg.pdf` | Foreground–systematics Pearson correlation, one panel per case |
 | 9 | `correlation_matrix_nfg.pdf` | `<a_fg, b_sys>` correlation matrices (the FG block grows with `Nfgmodes`) |
 
-Table 1 (ESS and autocorrelation times) is printed to stdout.
+| C1 | `convergence_traces_nfg.pdf` | Log-posterior traces and running means of `Re b_sys,1` and `P_EoR` at the first systematic delay |
+| C2 | `convergence_acf_ess_nfg.pdf` | Autocorrelation function of `b_sys` and worst efficiency per monitored block |
+| C3 | `convergence_ess_dps_nfg.pdf` | EoR delay-power-spectrum efficiency, delay bin by delay bin |
+
+Table 1 (ESS and autocorrelation times) and the convergence tables are printed
+to stdout.
+
+### Convergence diagnostics
+
+The section after Table 1 answers *which `Nfgmodes` case did the Gibbs sampler
+converge best?*  The sampler produces one chain per run, so the statistics used
+are the single-chain ones:
+
+| Statistic | What it measures | "Converged" |
+|---|---|---|
+| `tau` (integrated autocorrelation time, `emcee.autocorr`, Sokal windowing) | Iterations needed to forget the previous sample | `N > 50 tau` (reported as `reliable`) |
+| `ESS = N/tau`, efficiency `ESS/N` | Independent draws the chain is worth | Larger is better; `ESS/N` is the fair comparison when the cases ran for different `Niter` |
+| Rank-normalised split-Rhat (Vehtari et al. 2021) | Drift/sticking, by comparing `CONV_NSPLIT` consecutive segments of the one chain as if they were independent chains | `<~ 1.01` (`CONV_RHAT_OK`) |
+| Geweke *z* | Whether the first 10 % and last 50 % of the chain sample the same distribution | `|z| < 2` (`CONV_Z_OK`) |
+| `MCSE = sd/sqrt(ESS)` | Sampling noise left on a posterior mean | Small compared with the posterior scatter |
+
+Monitored blocks: `ln_post`, `b_sys`, `P_EoR` in the delay bins occupied by the
+systematics, and `a_fg` at `fg_amp_time_idx` (`CONV_INCLUDE_FG`).  Complex
+parameters are split into real and imaginary scalar chains.  Each case is scored
+by its **worst** monitored scalar, and the cases are ranked on three criteria —
+efficiency (worst `ESS/N`), mixing (worst split-Rhat) and stationarity (fraction
+of scalars failing Geweke) — whose mean rank picks the best-converged case.
+
+Additional settings, all in the estimator cell:
+
+| Variable | Default | Description |
+|---|---|---|
+| `CONV_NSPLIT` | 4 | Segments used by split-Rhat |
+| `CONV_BURN` | `Nburn` | Leading samples dropped before the diagnostics |
+| `CONV_GEWEKE_FIRST` / `CONV_GEWEKE_LAST` | 0.1 / 0.5 | Geweke window fractions |
+| `CONV_INCLUDE_FG` | `True` | Include the foreground-amplitude chains (extra I/O) |
+| `CONV_RHAT_OK` / `CONV_Z_OK` | 1.01 / 2.0 | Pass thresholds used by the summary counts |
+
+A separate table reports `|bias|/sd` and `MCSE/sd` for every systematic
+amplitude, to keep *convergence* (a property of the chain) apart from *accuracy*
+(a property of the model): a case can mix perfectly and still be biased because
+its `Nfgmodes` cannot separate foregrounds from systematics.
+
+These statistics only ever *detect* non-convergence — they cannot prove it.  With
+one chain per run they are blind to modes the sampler never visited, and blocked
+Gibbs updates correlate all parameter blocks, so they are most useful for
+ranking the cases against each other.
 
 ### Notes
 
@@ -184,6 +230,8 @@ Table 1 (ESS and autocorrelation times) is printed to stdout.
 - The notebook self-tests its online estimators against the direct
   all-samples-in-memory calculation before using them, and cross-checks that
   every run really does share the same `eor_true`, `fg_true` and `gain_true`.
+  The convergence estimators are likewise self-tested against an AR(1) chain of
+  known `tau`, an independent chain and a deliberately drifting one.
 - Pearson *r* is invariant under a constant offset, so the foreground–gain
   correlation is accumulated against `DLFR(Hb_sys)` rather than
   `DLFR(1 + Hb_sys) = dlfr_ones + DLFR(Hb_sys)`.  The two are equal in exact

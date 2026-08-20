@@ -2,6 +2,64 @@
 
 ---
 
+## 2026-08-20 — Convergence diagnostics in `paper_plots_c_v2_nfgmodes.ipynb`
+
+New section after Table 1 that answers *for which `Nfgmodes` case did the Gibbs
+sampler converge best?*  Purely additive: no existing cell was modified, and the
+existing Table 1 (`emcee` ESS of `b_sys`) is left in place.
+
+**New cells**
+- **Convergence estimators** — `real_columns` (splits complex chains into real
+  and imaginary scalar chains), `tau_int` (integrated autocorrelation time via
+  `emcee.autocorr`, Sokal windowing, `tol=0` so short chains return a number
+  rather than raising), `split_rhat` (rank-normalised split-Rhat, Vehtari et al.
+  2021, over `CONV_NSPLIT` consecutive segments of the single chain),
+  `geweke_z` (autocorrelation-corrected stationarity z-score) and
+  `convergence_table` (tau, ESS, ESS/N, MCSE, sd, Rhat, z, `reliable = N > 50 tau`
+  per scalar).  New settings `CONV_NSPLIT`, `CONV_BURN`, `CONV_GEWEKE_FIRST`,
+  `CONV_GEWEKE_LAST`, `CONV_INCLUDE_FG`, `CONV_RHAT_OK`, `CONV_Z_OK`.
+- **Self-test** — mirrors the existing online-estimator self-test: `tau_int`
+  against an AR(1) chain with the exact `tau = (1+rho)/(1-rho)`, and
+  `split_rhat`/`geweke_z` against an independent chain (must pass) and a
+  drifting chain (must fail).
+- **Per-case diagnostics** — monitors `ln_post`, `b_sys`, `P_EoR` in the delay
+  bins occupied by the systematics, and `a_fg` at `fg_amp_time_idx`.  Reuses
+  `ln_post_all` / `ps_sample_all` from the all-cases loop and reloads only
+  `b-sys.npy` plus a single-LST slice of `fg-amps.npy`, so the section is cheap
+  relative to the sample loop.  Also stores `ess_dps_all` (ESS per delay bin).
+- **Summary and ranking** — per-case table (worst/median `ESS/N`, worst `ESS`,
+  worst tau, worst Rhat, number of scalars with `Rhat > 1.01`, worst `|z|`,
+  fraction failing `|z| < 2`) and a rank over three criteria — efficiency,
+  mixing, stationarity — whose mean picks the best-converged case.  Scoring uses
+  each case's **worst** monitored scalar, and `ESS/N` rather than raw `ESS` so
+  cases with different `Niter` compare fairly.  Prints the slowest-mixing scalar
+  per case and warns when even the best case has `Rhat > CONV_RHAT_OK`.
+- **Convergence is not accuracy** — per-`b_sys`-component `|bias|/sd` (model
+  property) alongside `MCSE/sd` and `ESS` (chain property).
+- **Figure C1** `convergence_traces_nfg.pdf` — log-posterior traces (each case
+  relative to its own median, since the absolute value depends on `Nfgmodes`)
+  and running means of `Re b_sys,1` and of `P_EoR` at the first systematic delay.
+- **Figure C2** `convergence_acf_ess_nfg.pdf` — `b_sys` autocorrelation function
+  (log lag axis; the mixing times differ by orders of magnitude) and a grouped
+  bar chart of the worst `ESS/N` per monitored block.
+- **Figure C3** `convergence_ess_dps_nfg.pdf` — `ESS/N` of the sampled EoR delay
+  power spectrum per delay bin, with the systematic delays marked.
+
+**Validation**
+
+The data (`/nvme2/scratch/...`) is not reachable from the machine the section was
+written on, so all cells were executed against synthetic AR(1) chains with known
+correlation lengths and a deliberate drift (a fake `result_dir` with `b-sys.npy`
+and `fg-amps.npy` of the right shapes).  The ranking recovers the intended order,
+the drifting case is flagged by both split-Rhat and Geweke, and all three figures
+render.  The section still needs one run against the real chains.
+
+**Documentation**
+- `README.md`: new "Convergence diagnostics" subsection (statistic table,
+  settings table, caveats) and Figures C1–C3 added to the outputs table.
+
+---
+
 ## 2026-08-19 — Notebook for varying the number of foreground modes
 
 ### `paper_plots_c_v2_nfgmodes.ipynb` (new file)
