@@ -2,6 +2,129 @@
 
 ---
 
+## 2026-08-24 — `paper_plots_c_v2_single_case.ipynb` cleaned up
+
+The notebook was a copy of the three-case `paper_plots_c_v2.ipynb` with the case
+loop removed, so it still carried the multi-case scaffolding and a second copy
+of half its figures.  It is now a self-contained single-run notebook: 54 cells
+down to 41.
+
+**Removed**
+
+- The duplicate `astropy` cache print (it appeared twice).
+- The one-element `*_all` lists (`sky_true_dlfr_all`, `corr_maps`, …).  The
+  statistics they wrapped are now plain arrays computed in the processing cell:
+  `std_sky_dlfr`, `res_sky_dlfr`, `res_sys_dlfr`, `corr_map`.
+- **Figures 5 v2, 6 v2 and 7 v2.**  With one case they plotted exactly the same
+  arrays as Figures 5, 6 and 7, only stacked in one column instead of 2x2.
+- `ps_data` and `ps_del_g`, two `calc_ps` calls per Gibbs iteration whose
+  results were never used, together with the unused sample means
+  (`eor_pspec_avg`, `fg_pspec_avg`, `sys_pspec_avg`, `data_pspec_avg`,
+  `delg_pspec_avg`, `b_sys_mean`) — half the work in the 100k-iteration loop.
+- Unused loads in the Figure 3 cell (`vis_eor`, `vis_sky`, `lst_eor`, `lst_sky`,
+  `data_true_dlfr_full`) and ~20 unused imports (`emcee`, `hera_sim`, `scipy`,
+  `cmcrameri`, the duplicate `import corner`, …).
+- The trailing empty cell.
+
+**Fixed**
+
+- `case_idx` labelled the run "Case I" while `run_version` was `8fg_caseii_100k`
+  and `nm_list` was Case II's modes.  `case_idx` and the three-element
+  `run_version_arr` / `nm_list_arr` / `dl_inds` are gone; the run is now
+  described by `run_version`, `case_label`, `nm_list` and `dl_ind`, with the
+  other two cases kept as comments.
+- `Nburn = 10  # burn-in (%)` was used as a sample index, so the delay power
+  spectrum discarded 10 samples out of 100000 rather than 10 %.  It is now
+  `Nburn_pc = 10` with `Nburn = int(Niter * Nburn_pc / 100)`, matching
+  `paper_plots_c_v2_nfgmodes.ipynb`.  **This changes Figure 10.**
+- The Figure 3 cell overwrote `eor_true`, `fg_true` and `sys_model_true` with
+  different arrays than the processing cell uses, so re-running it silently
+  invalidated Figures 4-11.  Those variables are now `*_f3`, and the cell reuses
+  `sys_modes_operator` instead of rebuilding the operator.
+- The sample loop mixed `fgmodes` (all modes) into `fg_vis` but
+  `fgmodes[:, :Nfgmodes]` into `ps_fg`.  `fgmodes` is now truncated once at load
+  and both use it; the amplitudes are truncated to match.
+- `ps_fg` / `ps_sys` were allocated with `ps_sample.shape` but only filled for
+  `Niter` rows, leaving uninitialised memory in Figure 7 if the chain on disk is
+  longer than `Niter`.  They are now `(Niter, Nfreqs)` and the DPS cell slices
+  `[Nburn:Niter]`.
+- Figure 10 recomputed `calc_ps(n.T)` twice; it reuses `n_pspec`.
+- The Table 1 / Figure T1 text still spoke of comparing cases.
+
+**Refactored — the sample loop no longer holds the chain in memory**
+
+- `sky_dlfr_arr`, `fg_dlfr_arr` and `delta_g_dlfr_arr` were
+  `[Niter, Ntimes, Nfreqs]` complex arrays: 7.7 GB each at Niter = 100000, and
+  `gcr-eor.npy` was loaded whole on top of them, ~32 GB in all.  The means,
+  standard deviations and the FG-systematics Pearson map are now accumulated
+  online with Welford updates, and `gcr-eor.npy` / `fg-amps.npy` are opened
+  with `mmap_mode='r'` (`USE_MMAP`, as in `paper_plots_c_v2_nfgmodes.ipynb`).
+  Peak memory is now ~100 MB, dominated by the per-iteration power spectra that
+  Figure 7 needs in full.
+- The accumulated statistics agree with the array-based ones to ~1e-14
+  (float64 round-off).  The one exception is the Pearson map, where the online
+  form is the *more* accurate of the two: the old code correlated
+  `DLFR(1 + dg)`, whose constant `dlfr_ones` term swamps the per-sample
+  fluctuation and costs ~8 significant figures to cancellation.  Pearson r is
+  invariant to that constant, so the loop accumulates `DLFR(dg)` instead.
+
+---
+
+## 2026-08-24 — Presentable diagnostic tables and figures
+
+The ESS / autocorrelation-time results and the whole convergence section used to
+be printed with bare `print(array)` calls.  They are now rendered as styled
+tables with an explicit colour code, each with a companion figure, so the output
+can be pasted straight into an email, Slack or the paper.
+
+### `plotting_codes/tables.py` (new file)
+
+Shared, pandas-free rendering layer used by every plotting notebook.
+
+- `Table` / `Col` — a table that renders itself as styled HTML (inline CSS only,
+  so a copy-paste keeps its formatting), Markdown, a LaTeX `tabular` and CSV.
+  Per-cell colour flags (green / amber / red) come from the column's `flag`.
+- `ess_table(chains, ...)` — builds and displays the tau / ESS table for one or
+  more chains; `plot_ess_tau(table)` is its companion figure (tau and ESS as
+  grouped bars, with the ESS quality bands shaded).
+- `tau_ess(chain)` — tau and ESS with **tau floored at one sample**.  Sokal
+  windowing can return tau < 1, even negative, for an effectively independent
+  chain, which previously produced negative "effective sample sizes" (see
+  below).  ESS <= N now holds by construction.
+- `annotated_heatmap`, `quality_cmap`, `callout`, `verdict`, the `flag_*`
+  helpers, and `save_tables(dir)` which writes every table built in the session
+  as `.md`, `.tex`, `.csv` and `.html`.
+- Thresholds in one place: `ESS_GOOD = 1000`, `ESS_WARN = 400` (Vehtari et al.
+  2021), `RHAT_OK = 1.01`, `GEWEKE_OK = 2`.
+
+### `paper_plots_c_v2_nfgmodes.ipynb`
+
+- **Table 1** — tau / ESS per systematic amplitude as a coloured table, plus
+  **Figure T1** (`ess_tau_bsys_nfg.pdf`): tau and ESS as grouped bars.
+- **Table C1** — per-case, per-block convergence diagnostics with a verdict
+  column, plus **Figure C0** (`convergence_dashboard_nfg.pdf`): worst ESS/N,
+  split-Rhat and |Geweke z| as annotated heat maps.
+- **Tables C2 / C3 / C4** — convergence summary per case, the ranking (1 = best)
+  and the bottleneck parameter of each case, with the take-home sentence in a
+  coloured verdict box.
+- **Table C5** + **Figure C6** (`bias_mcse_nfg.pdf`) — |bias|/sigma against
+  MCSE/sigma for every systematic amplitude (model error vs chain-length error).
+- **Bug fix**: `tau_int` now goes through `tbl.tau_ess`, so tau is floored at one
+  sample.  Before this, blocks whose chains are effectively independent
+  (`ln_post`, `P_EoR_sys`, `a_fg`) returned tau < 0 and hence *negative* ESS —
+  which propagated into "minESS/N = -6.69" in the summary table and into the
+  ranking, so the previously reported best-converged case was decided by
+  meaningless numbers.  Re-run the notebook to get corrected values.
+- New settings `SAVE_TABLES` and `table_dir` (default `fig_dir/tables`), plus an
+  export cell that writes every table in all four formats.
+
+### `paper_plots_c_v2.ipynb`, `paper_plots_c.ipynb`, `100k_runs_paper_plots.ipynb`, `paper_plots_c_v2_single_case.ipynb`
+
+Table 1 replaced by `tbl.ess_table(...)` plus the `ess_tau_bsys.pdf` figure and
+a `tbl.save_tables(fig_dir + '/tables')` export.  Same numbers, readable layout.
+
+---
+
 ## 2026-08-20 — Convergence diagnostics in `paper_plots_c_v2_nfgmodes.ipynb`
 
 New section after Table 1 that answers *for which `Nfgmodes` case did the Gibbs
