@@ -8,6 +8,7 @@ __pycache__/
 
 # Script log output
 paper_plots_c_output.txt
+CLAUDE.md 
 
 # Generated figures (uncomment if you want to exclude from version control)
 # paper_plots/
