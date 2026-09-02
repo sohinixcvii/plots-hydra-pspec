@@ -15,6 +15,8 @@ estimation using the Gibbs-sampling framework implemented in
 ├── paper_plots_c.ipynb         # Notebook version (source of paper_plots_c.py)
 ├── paper_plots_c_v2.ipynb      # Optimised notebook (recommended; see below)
 ├── paper_plots_c_v2_nfgmodes.ipynb  # Same analysis, cases differ in Nfgmodes
+├── paper_plots_c_v2_single_case.ipynb # Single-run version of the v2 notebook
+├── convergence_tests.ipynb     # Convergence diagnostics, 1+ cases (see below)
 ├── plotting_functions.py       # Waterfall-plot helpers used by paper_plots_c.py
 ├── plot-test-data-results.py   # Standalone EoR delay power spectrum plotter (CLI)
 ├── plot_speed_up.py            # MPI speed-up / scaling plotter (CLI)
@@ -181,6 +183,14 @@ to stdout.
 
 ### Convergence diagnostics
 
+> These diagnostics also live on their own in
+> [`convergence_tests.ipynb`](#convergence-tests-convergence_testsipynb), which
+> runs them for any set of runs — including the cases of
+> `paper_plots_c_v2.ipynb` and a single run — without the expensive
+> delay/fringe-rate sample loop.  Use that notebook when convergence is the
+> question; the section here is kept so the `Nfgmodes` notebook stays
+> self-contained.
+
 The section after Table 1 answers *which `Nfgmodes` case did the Gibbs sampler
 converge best?*  The sampler produces one chain per run, so the statistics used
 are the single-chain ones:
@@ -238,6 +248,129 @@ ranking the cases against each other.
   arithmetic, but `dlfr_ones` is a spike of `Ntimes*Nfreqs` at the
   zero-delay/zero-fringe-rate pixel, so adding it first destroys the sample
   scatter in that pixel.
+
+---
+
+## Convergence tests: `convergence_tests.ipynb`
+
+The convergence diagnostics of the `paper_plots_c_v2*` notebooks, split out into
+one self-contained notebook that handles **one or more cases**: with a single
+case it is an independent assessment of that run, with several it also ranks
+them against each other.
+
+It reads only the small chains — `ln-post.npy`, `b-sys.npy`, `dps-eor.npy` and
+one LST slice of `fg-amps.npy` — so it needs none of the delay/fringe-rate
+sample loop of the paper notebooks and finishes in a couple of minutes.  The
+mathematics is unchanged from `paper_plots_c_v2_nfgmodes.ipynb`; only the
+configuration was generalised.
+
+### Configuration
+
+Everything lives in the configuration cell.  A "case" is one run directory, so
+the cases of all three source notebooks are expressible in the same list:
+
+```python
+cases = [
+    dict(run='low_dl_fr_0',            # sub-folder of result_dir          (required)
+         label=r'Case I',              # legend / table label; default: run
+         nm_list=[(3, 0), (4, 0), (5, 0), (6, 0)],   # systematic modes (n, m)
+         dl_inds=[3, 4, 5, 6],         # delay indices; default: [n for (n, m) in nm_list]
+         sys_amps_true=[1.+4j, 2.+3j, 3.+2j, 4.+1j],  # needed only for Table C5 / Figure C6
+         Nfgmodes=None),               # None reads it from that run's fgmodes.npy
+]
+```
+
+`dl_inds` is kept separate from `nm_list` because the paper notebooks do not
+always set it to `n` (Case III of `paper_plots_c_v2.ipynb` uses `[3, 3, 3, 3]`
+for modes `(3, 20) … (6, 20)`).  Give it explicitly whenever the run does.
+
+Cases may differ in every one of these: number of systematic modes, systematic
+delays, true amplitudes and number of foreground modes.  The comparison figures
+take the union where the cases disagree (Figure C6's amplitude axis, Figure C3's
+shaded delay band) and drop the parts that would be meaningless (Table C3 is not
+built for a single case; Table C5 and Figure C6 are skipped for any case with no
+`sys_amps_true`).
+
+| Variable | Default | Description |
+|---|---|---|
+| `result_dir` / `parent_dir` / `fig_dir` | — | Run outputs, repo root, figure output |
+| `table_dir` | `fig_dir/tables` | Markdown/LaTeX/CSV/HTML copies of every table |
+| `fig_suffix` | `'_conv'` | Appended to every PDF name, so nothing clashes with the paper figures |
+| `SAVE_FIGS` / `SAVE_TABLES` | `True` | Write the PDFs / the table exports |
+| `USE_MMAP` | `True` | Memory-map `fg-amps.npy` (only one LST slice is read) |
+| `Niter` | 100000 | Iterations to use, clipped per case to what is on disk |
+| `fg_amp_time_idx` | `-3` | LST index of the monitored foreground amplitudes |
+| `CONV_BURN_PC` | 10 | Burn-in as a percentage of the samples available per case |
+| `CONV_BURN_ABS` | `None` | Absolute burn-in in samples; overrides `CONV_BURN_PC` |
+| `CONV_NSPLIT` | 4 | Segments used by split-Rhat |
+| `CONV_GEWEKE_FIRST` / `CONV_GEWEKE_LAST` | 0.1 / 0.5 | Geweke window fractions |
+| `CONV_INCLUDE_FG` | `True` | Include the foreground-amplitude chains (extra I/O) |
+| `CONV_RHAT_OK` / `CONV_Z_OK` | 1.01 / 2.0 | Pass thresholds used by the summary counts |
+| `TRACE_WINDOW` | `None` | `(start, stop)` within the post-burn-in chain for Figure C1; `None` = all of it |
+| `TRACE_RUNNING_MEAN` | `False` | `False` plots raw traces (as in the `Nfgmodes` notebook), `True` plots running means |
+
+### The statistics
+
+| Statistic | What it measures | "Converged" |
+|---|---|---|
+| `tau` (integrated autocorrelation time, `emcee.autocorr`, Sokal windowing) | Iterations needed to forget the previous sample | `N > 50 tau` (reported as `reliable`) |
+| `ESS = N/tau`, efficiency `ESS/N` | Independent draws the chain is worth | Larger is better; `ESS/N` is the fair comparison when the cases ran for different `Niter` |
+| Rank-normalised split-Rhat (Vehtari et al. 2021) | Drift/sticking, by comparing `CONV_NSPLIT` consecutive segments of the one chain as if they were independent chains | `<~ 1.01` (`CONV_RHAT_OK`) |
+| Geweke *z* | Whether the first 10 % and last 50 % of the chain sample the same distribution | `\|z\| < 2` (`CONV_Z_OK`) |
+| `MCSE = sd/sqrt(ESS)` | Sampling noise left on a posterior mean | Small compared with the posterior scatter |
+
+Monitored blocks: `ln_post`, `b_sys`, `P_EoR` in the delay bins occupied by that
+case's systematics, and `a_fg` at `fg_amp_time_idx` (`CONV_INCLUDE_FG`).  Complex
+parameters are split into real and imaginary scalar chains.  Each case is scored
+by its **worst** monitored scalar, and — with more than one case — the cases are
+ranked on three criteria: efficiency (worst `ESS/N`), mixing (worst split-Rhat)
+and stationarity (fraction of scalars failing Geweke), whose mean rank picks the
+best-converged case.
+
+The estimators are self-tested before use, against an AR(1) chain of known
+`tau`, an independent chain and a deliberately drifting one.
+
+These statistics only ever *detect* non-convergence — they cannot prove it.  With
+one chain per run they are blind to modes the sampler never visited, and blocked
+Gibbs updates correlate all parameter blocks, so they are most useful for ranking
+the cases against each other.
+
+### Outputs
+
+Figures, written to `fig_dir` with `fig_suffix` appended to each name:
+
+| File | Content |
+|---|---|
+| `ess_tau_bsys*.pdf` | Figure T1 — `tau` and ESS per systematic amplitude |
+| `convergence_dashboard*.pdf` | Figure C0 — efficiency / split-Rhat / Geweke heat maps, case x parameter block |
+| `bias_mcse*.pdf` | Figure C6 — `\|bias\|/sd` against `MCSE/sd` per systematic amplitude |
+| `convergence_traces*.pdf` | Figure C1 — `ln L`, `Re b_sys,1` and `P_EoR` traces (or running means) |
+| `convergence_acf_ess*.pdf` | Figure C2 — `b_sys` autocorrelation and per-block efficiency |
+| `convergence_ess_dps*.pdf` | Figure C3 — EoR delay-power-spectrum efficiency per delay bin |
+
+Tables, shown inline and exported to `table_dir` as `.md`, `.tex`, `.csv` and
+`.html`:
+
+| Name | Content |
+|---|---|
+| `table1_ess_bsys` | Table 1 — `tau` / ESS of the systematic amplitudes (full chain, no burn-in) |
+| `tableC1_convergence_blocks` | Table C1 — diagnostics per case and parameter block |
+| `tableC2_convergence_summary` | Table C2 — one row per case, summarised by its worst scalar |
+| `tableC3_convergence_ranking` | Table C3 — ranking of the cases (skipped for a single case) |
+| `tableC4_slowest_scalar` | Table C4 — the bottleneck parameter of each case |
+| `tableC5_bias_vs_mcse` | Table C5 — accuracy: `\|bias\|/sd` and `MCSE/sd` per amplitude |
+
+`Table 1` is the only one computed on the full chain — that is what the paper
+notebooks quote; everything after it works on the post-burn-in chain.
+
+### Relation to the paper notebooks
+
+`convergence_tests.ipynb` does not replace anything: the `paper_plots_c_v2*`
+notebooks keep their own Table 1 and (in the `Nfgmodes` notebook) their
+convergence section, so they remain self-contained.  This notebook is where to
+add or re-run convergence work, because it needs no sample loop and is not tied
+to one set of cases.  `fig_suffix` defaults to `_conv` so its output never
+overwrites the paper figures.
 
 ---
 

@@ -2,6 +2,90 @@
 
 ---
 
+## 2026-09-02 — convergence tests split into `convergence_tests.ipynb`
+
+The convergence diagnostics of the `paper_plots_c_v2*` notebooks now also exist
+as a standalone notebook that handles **one or more cases**, either as an
+independent assessment of a single run or as a comparison and ranking of
+several.  43 cells, 21 of them code.
+
+**No mathematical logic was changed.**  Every estimator (`real_columns`,
+`tau_int`, `split_rhat`, `geweke_z`, `convergence_table`, `_nanagg`), its
+self-test, and every table and figure body was carried over from
+`paper_plots_c_v2_nfgmodes.ipynb` unchanged.  What changed is the configuration
+around them.
+
+**Added**
+
+- `convergence_tests.ipynb`, with the sections: estimators and their self-test,
+  per-case diagnostics, Table 1 + Figure T1 (`tau`/ESS of `b_sys`), Table C1 +
+  Figure C0 (dashboard), Tables C2/C3/C4 + the verdict callout, Table C5 +
+  Figure C6 (bias against MCSE), Figures C1/C2/C3 (traces, autocorrelation,
+  per-delay efficiency), and the table export.
+- A `cases` list that describes each run by `run`, `label`, `nm_list`,
+  `dl_inds`, `sys_amps_true` and `Nfgmodes`.  This covers the case definitions
+  of all three source notebooks: the differing `nm_list_arr` / `dl_inds` of
+  `paper_plots_c_v2.ipynb`, the differing `Nfgmodes` of
+  `paper_plots_c_v2_nfgmodes.ipynb`, and the single run of
+  `paper_plots_c_v2_single_case.ipynb`.
+- A validation cell that resolves the defaults, reads `Nfgmodes` from each run's
+  `fgmodes.npy`, and checks `nm_list` / `dl_inds` / `sys_amps_true` against the
+  width of `b-sys.npy` before any diagnostic runs.
+- `fig_suffix` (default `_conv`), so the figures never overwrite the paper ones.
+
+**Generalised** (the reason the notebook works for any number of cases)
+
+- Per-case systematic modes.  `Nsysmodes`, `dl_inds` and `sys_amps_true` were
+  single shared values in the `Nfgmodes` notebook; they are now per-case arrays,
+  so cases with different numbers of systematic modes can be compared.  Figure
+  C6 plots the union of the amplitudes over all cases and simply leaves a gap
+  where a case has no such mode.  Figure C3 shades the union of the systematic
+  delays, and Figure C1 names each case's own first systematic delay in the
+  legend.
+- Per-case burn-in.  `CONV_BURN_PC` (default 10 %) with an absolute
+  `CONV_BURN_ABS` override, replacing the single `CONV_BURN = Nburn`; the three
+  source notebooks expressed burn-in in three different ways (10000 samples,
+  `10` as a percent, and `int(Niter * Nburn_pc / 100)`).
+- Single-case handling.  Table C3 (the ranking) is not built for one case, and
+  the verdict callout drops the "best-converged case" wording.  Table C5 and
+  Figure C6 are skipped for any case with no `sys_amps_true`.
+- Table 1 accepts cases with different numbers of systematic amplitudes.
+- Figure C1's plotted range is `TRACE_WINDOW` (default: the whole post-burn-in
+  chain) instead of the hard-coded `20000:80000`, which assumed a 100k run, and
+  the x-axis is now the absolute Gibbs-iteration number. `TRACE_RUNNING_MEAN`
+  (default `False`) selects raw traces — what the `Nfgmodes` notebook actually
+  plots — or the running means its markdown describes.
+
+**Dropped from the imports**
+
+- `pyuvdata`, `hera_sim`, `uvtools`, `corner`, `cmcrameri`, `tqdm`, `scipy.fft`
+  and the `hydra_pspec` / `plotting_codes.functions` / `plotting_functions`
+  helpers.  None of the diagnostics need the delay/fringe-rate machinery, so the
+  notebook reads only `ln-post.npy`, `b-sys.npy`, `dps-eor.npy` and one LST
+  slice of `fg-amps.npy` — no sample loop, a couple of minutes end to end.
+
+**Unchanged**
+
+- The `paper_plots_c_v2*` notebooks.  They keep their own Table 1 and, in the
+  `Nfgmodes` notebook, their convergence section, so they stay self-contained;
+  the README cross-references the new notebook from there.
+- `plotting_codes/tables.py`.  The new notebook uses its existing API
+  (`tau_ess`, `ess_table`, `plot_ess_tau`, `Table`/`Col`/`show`, `verdict`, the
+  `flag_*` helpers, `annotated_heatmap`, `quality_cmap`, `callout`,
+  `save_tables`) without modification.
+
+**Testing**
+
+Executed end to end with `jupyter nbconvert --execute` against synthetic runs
+built from AR(1) chains of known `tau` centred on known true amplitudes, in four
+configurations: four cases with mixed systematic-mode counts (4/4/4/12) and
+foreground-mode counts (8/8/10/12); a single case; all cases with no
+`sys_amps_true`; and `CONV_BURN_ABS` / `CONV_INCLUDE_FG=False` /
+`TRACE_WINDOW` / `TRACE_RUNNING_MEAN=True` together.  All four ran clean, and
+the recovered `tau` ordering and posterior means matched the injected values.
+
+---
+
 ## 2026-08-24 — `paper_plots_c_v2_single_case.ipynb` cleaned up
 
 The notebook was a copy of the three-case `paper_plots_c_v2.ipynb` with the case
