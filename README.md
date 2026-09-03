@@ -202,6 +202,7 @@ are the single-chain ones:
 | Rank-normalised split-Rhat (Vehtari et al. 2021) | Drift/sticking, by comparing `CONV_NSPLIT` consecutive segments of the one chain as if they were independent chains | `<~ 1.01` (`CONV_RHAT_OK`) |
 | Geweke *z* | Whether the first 10 % and last 50 % of the chain sample the same distribution | `|z| < 2` (`CONV_Z_OK`) |
 | `MCSE = sd/sqrt(ESS)` | Sampling noise left on a posterior mean | Small compared with the posterior scatter |
+| Raftery-Lewis `M`, `N`, `I` (Raftery & Lewis 1992) | Iterations needed to estimate the `RL_Q` quantile within `±RL_R` with probability `RL_S`: required burn-in `M`, required total `M+N`, and the dependence factor `I = (M+N)/Nmin` | `M+N` at or below the iterations actually run; `I ~ 1` is as good as independent, `I > 5` flags strong dependence |
 
 Monitored blocks: `ln_post`, `b_sys`, `P_EoR` in the delay bins occupied by the
 systematics, and `a_fg` at `fg_amp_time_idx` (`CONV_INCLUDE_FG`).  Complex
@@ -308,6 +309,9 @@ built for a single case; Table C5 and Figure C6 are skipped for any case with no
 | `CONV_RHAT_OK` / `CONV_Z_OK` | 1.01 / 2.0 | Pass thresholds used by the summary counts |
 | `TRACE_WINDOW` | `None` | `(start, stop)` within the post-burn-in chain for Figure C1; `None` = all of it |
 | `TRACE_RUNNING_MEAN` | `False` | `False` plots raw traces (as in the `Nfgmodes` notebook), `True` plots running means |
+| `RL_Q` / `RL_R` / `RL_S` | 0.025 / 0.005 / 0.95 | Raftery-Lewis: quantile to estimate, accuracy on it, probability |
+| `RL_EPS` | 0.001 | Raftery-Lewis: convergence tolerance of the two-state chain |
+| `RL_MAX_THIN` | 200 | Raftery-Lewis: largest thinning interval tried |
 
 ### The statistics
 
@@ -335,6 +339,46 @@ one chain per run they are blind to modes the sampler never visited, and blocked
 Gibbs updates correlate all parameter blocks, so they are most useful for ranking
 the cases against each other.
 
+### Raftery-Lewis run-length diagnostic
+
+The diagnostics above ask *has this chain converged?*  Raftery & Lewis (1992)
+asks *how long would this chain have to be?*  It fixes an estimation target —
+the `RL_Q`-th posterior quantile, to within `±RL_R` with probability `RL_S` —
+and returns the burn-in `M` and run length `N` needed to hit it, plus the
+dependence factor `I = (M+N)/Nmin`, where `Nmin` is what independent draws
+would need (3746 for the default settings).
+
+The method reduces the chain to the indicator `Z_t = 1{theta_t <= u_q}`, thins
+it until a two-state **first-order** Markov chain fits better than a
+second-order one (by BIC), and reads `M` and `N` off that chain's transition
+probabilities.  `q`, `r` and `s` are arguments rather than constants because
+they *are* the question being asked: a tail quantile or a tighter tolerance
+needs a longer run.
+
+Unlike every other table in the notebook, this section reads the **full raw
+chains including burn-in** — from the same files and the same `cases`
+configuration as the loader cell.  It has to: the point is to estimate the
+burn-in a run needed, which is then compared against the `CONV_BURN` actually
+applied.  Tables C6 and C7 put required `M` and `M+N` directly next to the
+burn-in and iteration count the run really used, so "was this run long enough"
+is readable off one column (`required / run`, at or below 1 = yes).
+
+**Why it is implemented in the notebook rather than imported.**  There is no
+library route: `pymc` 5.x and `arviz` do not contain the diagnostic (the
+PyMC2-era `pymc.raftery_lewis` is gone, and modern PyMC delegates its
+statistics to ArviZ, which never had it); `rpy2` + `coda::raftery.diag` would
+need a full R installation, which is not present; and no maintained pure-Python
+implementation exists on PyPI.  It is therefore written out directly from
+Raftery, A. E. & Lewis, S. M. (1992), "One long run with diagnostics:
+Implementation strategies for Markov chain Monte Carlo", *Statistical Science*
+**7**(4), 493-497, cited in the function docstring, and self-tested against an
+AR(1) chain, an independent chain, and the `Nmin` value published for the
+default settings.
+
+Caveat: the diagnostic addresses **one quantile at a time** and says nothing
+about the rest of the posterior; like the others it is a necessary, not a
+sufficient, check.
+
 ### Outputs
 
 Figures, written to `fig_dir` with `fig_suffix` appended to each name:
@@ -347,6 +391,7 @@ Figures, written to `fig_dir` with `fig_suffix` appended to each name:
 | `convergence_traces*.pdf` | Figure C1 — `ln L`, `Re b_sys,1` and `P_EoR` traces (or running means) |
 | `convergence_acf_ess*.pdf` | Figure C2 — `b_sys` autocorrelation and per-block efficiency |
 | `convergence_ess_dps*.pdf` | Figure C3 — EoR delay-power-spectrum efficiency per delay bin |
+| `raftery_lewis*.pdf` | Figure C4 — Raftery-Lewis required run length against the run actually done, and the dependence factor |
 
 Tables, shown inline and exported to `table_dir` as `.md`, `.tex`, `.csv` and
 `.html`:
@@ -359,9 +404,13 @@ Tables, shown inline and exported to `table_dir` as `.md`, `.tex`, `.csv` and
 | `tableC3_convergence_ranking` | Table C3 — ranking of the cases (skipped for a single case) |
 | `tableC4_slowest_scalar` | Table C4 — the bottleneck parameter of each case |
 | `tableC5_bias_vs_mcse` | Table C5 — accuracy: `\|bias\|/sd` and `MCSE/sd` per amplitude |
+| `tableC6_raftery_lewis_blocks` | Table C6 — Raftery-Lewis required run length per case and block, against what was run |
+| `tableC7_raftery_lewis_worst` | Table C7 — the parameter that sets each case's required run length |
 
-`Table 1` is the only one computed on the full chain — that is what the paper
-notebooks quote; everything after it works on the post-burn-in chain.
+`Table 1` and the Raftery-Lewis tables (C6, C7) are computed on the full chain;
+`Table 1` because that is what the paper notebooks quote, C6 and C7 because the
+diagnostic has to see the burn-in in order to estimate it.  Everything else
+works on the post-burn-in chain.
 
 ### Relation to the paper notebooks
 

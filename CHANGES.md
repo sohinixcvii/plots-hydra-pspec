@@ -2,6 +2,102 @@
 
 ---
 
+## 2026-09-03 — Raftery-Lewis run-length diagnostic in `convergence_tests.ipynb`
+
+Added the Raftery-Lewis diagnostic alongside the existing trace / split-Rhat /
+ESS sections.  Where those ask *has this chain converged?*, this one asks *how
+long would this chain have to be?* — and answers it against the run that was
+actually done.  Eleven cells inserted before the table-export section; the
+notebook goes from 43 cells to 55.
+
+**Why it is implemented rather than imported**
+
+No library route exists in this environment, which was checked rather than
+assumed:
+
+- `pymc` is not installed, and the function no longer exists in it anyway.
+  Checking the current release (5.26.0) rather than older references: `raftery`
+  appears nowhere in the distribution, and `pymc/stats/__init__.py` delegates to
+  ArviZ.  The PyMC2-era `pymc.raftery_lewis` is gone, not relocated.
+- `arviz` is not installed, and 0.23.4 contains no `raftery` either.
+- `rpy2` is not installed and **there is no R on this machine at all** (nothing
+  on PATH, `/usr/local/bin`, `/opt/homebrew/bin` or `/Library/Frameworks`), so
+  `coda::raftery.diag` would mean adding a whole R stack as a dependency of a
+  plotting repo.
+- No maintained pure-Python implementation exists: a PyPI search for "raftery
+  lewis" returns zero hits.  The nearest candidate, `mcmc-diagnostics`
+  ("Python analogue of the R coda package"), provides only ESS and a
+  Cramér-von Mises test — no Raftery-Lewis — is a single 0.1 release from
+  February 2020, and its own "coda" path just shells out to R via rpy2.
+  `pymc-extras` and `pymcmcstat` were also checked: no `raftery` in either.
+
+So it is written out directly from Raftery, A. E. & Lewis, S. M. (1992), "One
+long run with diagnostics: Implementation strategies for Markov chain Monte
+Carlo", *Statistical Science* **7**(4), 493-497, cited in the docstring.  No new
+dependency: numpy and scipy only, which the notebook already used.
+
+**Added**
+
+- `raftery_lewis_nmin(q, r, s)` — iterations needed for independent draws.
+- `_bic_first_vs_second_order(z)` — BIC test of first- against second-order
+  binary Markov dependence, used to choose the thinning interval.
+- `raftery_lewis(chain, q, r, s, eps, max_thin)` — the diagnostic itself,
+  returning required burn-in `M`, run length `N`, total, `Nmin`, dependence
+  factor `I = (M+N)/Nmin`, the thinning `k`, and an `ok`/`note` pair reporting
+  why a chain could not be scored.  `q`, `r` and `s` are arguments with the
+  standard defaults (0.025 / 0.005 / 0.95), not hard-coded values, because they
+  are the question being asked.
+- `RL_Q`, `RL_R`, `RL_S`, `RL_EPS`, `RL_MAX_THIN` in the configuration cell,
+  next to the existing `CONV_*` settings.
+- **Table C6** — required `M` and `M+N` per case and parameter block, each
+  block summarised by its most demanding scalar, printed next to the burn-in
+  and iteration count the run actually used, with a `required / run` column
+  (≤ 1 = the run was long enough) and a verdict of
+  long enough / burn-in short / too short.
+- **Table C7** — the single scalar that sets each case's requirement.
+- **Figure C4** (`raftery_lewis*.pdf`) — required iterations per block with each
+  run length drawn as a dashed line (bars above it were not satisfied) and the
+  `Nmin` floor marked; dependence factor `I` alongside, against the `I = 1` and
+  `I = 5` references.
+
+**Applied to the same chains as the existing cells** — the same monitored
+blocks (`ln_post`, `b_sys`, `P_EoR` at the systematic delays, `a_fg`), the same
+`real_columns` split of complex parameters, the same `cases` configuration and
+the same files.  The one deliberate difference is that this section reads the
+**full raw chains including burn-in**: the diagnostic estimates the burn-in a
+run needed, which is only meaningful if it can see the start of the chain, and
+it is what makes the required-vs-actual burn-in comparison possible.
+
+**Testing**
+
+- `Nmin` checked against the values published for the standard settings: 3746
+  for `q=0.025, r=0.005, s=0.95`, and 38415 for `q=0.5` — both exact.
+- An independent chain gives thinning `k=1` and `I = 1.00`; AR(1) chains with
+  rho = 0.5 / 0.8 / 0.95 give monotonically increasing requirements
+  (3748 → 8292 → 18988 → 56380 iterations, `I` = 1.0 → 15.1).
+- `r` and `s` verified to move the answer in the right direction; constant,
+  non-finite and too-short chains are reported via `ok`/`note` rather than
+  raising.  These checks are in the notebook as a self-test cell, in the same
+  style as the existing estimator self-tests.
+- Whole notebook executed end to end with `jupyter nbconvert --execute` in three
+  configurations (four cases with mixed mode counts at 30k samples; a single
+  case; four cases at 4k samples, i.e. barely above `Nmin`).  All clean.  On the
+  synthetic runs the recovered dependence factor tracked the injected AR(1)
+  correlation exactly (rho = 0.6 → I = 2.5, 0.7 → 3.6, 0.85 → 6.4, 0.9 → 10.0),
+  and the most autocorrelated case was correctly flagged "too short" at 30k.
+- Runtime is ~5 ms per 100k-sample scalar, so under a second for a full
+  four-case notebook.
+
+**Unchanged**
+
+- Every existing cell of `convergence_tests.ipynb`, including the outputs from
+  the user's run against the real 100k-sample data, and the notebook's
+  kernelspec.  The new cells were inserted in place rather than by regenerating
+  the notebook.
+- `plotting_codes/tables.py` — Tables C6 and C7 use its existing API.
+
+---
+
 ## 2026-09-02 — convergence tests split into `convergence_tests.ipynb`
 
 The convergence diagnostics of the `paper_plots_c_v2*` notebooks now also exist
