@@ -56,7 +56,7 @@ from matplotlib.ticker import FormatStrFormatter
 
 # ── Paths ─────────────────────────────────────────────────────────────────
 RESULT_DIR = '/nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/sim_data/'
-FIG_DIR = '/nvme2/scratch/sohini/Systematics-in-hydra-pspec/Figures'
+FIG_DIR = '/nvme2/scratch/sohini/hydra-pspec-systematic/Figures'
 
 # ── Cases (runs overlaid inside every figure) ─────────────────────────────
 # One entry per run sub-folder of `result_dir`, matching the `run_version_arr`
