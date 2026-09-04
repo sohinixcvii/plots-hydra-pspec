@@ -2,6 +2,104 @@
 
 ---
 
+## 2026-09-04 — `plot_corner_blink.py`: blink-comparison corner plots (100k vs 250k)
+
+New standalone script, plus the repository's first `tests/` directory.  Nothing
+existing was touched: `paper_plots_c_v2.ipynb` and every other notebook and
+module are unchanged, and the script imports nothing from them.
+
+**Why**
+
+Figure 6 of `paper_plots_c_v2.ipynb` is a single corner plot of the sampled
+systematic amplitudes `b_sys`.  The question asked of it is whether the
+posterior has moved between a 100k-iteration chain and a 250k one, which is
+only answerable if the two figures can be blinked — and two independent calls
+to `corner.corner` do *not* produce blinkable figures: `corner` picks each
+axis range from the data it is given, scales each marginal histogram to its
+own peak, and `bbox_inches='tight'` then crops each file to its own title
+widths.  Three separate ways for the same distribution to look different.
+
+**What the script does**
+
+One corner figure per chain length ("variant"), with all cases overlaid inside
+each figure exactly as the notebook does, and everything that could shift
+between figures pinned down:
+
+- `common_ranges()` — union of the per-parameter ranges over every variant and
+  case, plus 5 % padding, passed to `corner.corner(range=...)`.  Shared ranges
+  with a shared `BINS` also mean shared histogram bin edges, so the marginals
+  are binned identically.
+- `harmonise_diagonals()` — levels the y-limits of the diagonal panels after
+  drawing, which is the one thing a shared `range` does not fix.
+- `common_bbox()` — union of the figures' tight bounding boxes, used as the
+  `bbox_inches` of every `savefig`, so the frames come out pixel-identical in
+  size and register when blinked.
+- `save_blink_gif()` — optional animated GIF alternating between the PNG
+  frames, so the blink needs nothing but a browser.
+
+`corner_plot()` is a copy of the notebook's helper with the burn/thin arguments
+removed (burn-in happens in `load_bsys` instead, so both variants can be burnt
+the same way) and a `ranges` argument added.  The rest — contour levels,
+`title_fmt`, tick locators, accumulated legend, colours — is unchanged, so a
+single-variant run reproduces the notebook's figure.
+
+**Configuration**
+
+`CASES` are the runs overlaid *inside* each figure; `VARIANTS` are the figures
+themselves.  A variant may carry its own `result_dir`, which covers both
+readings of "100k and 250k": the same chain truncated at two points (default),
+or two separate runs in two directories.  `BURN_MODE` chooses between the
+notebook's fixed `BURN`-sample burn-in (`'count'`, the default, for fidelity to
+the paper figure) and a proportional one (`'percent'`), which is the fairer
+choice when the chains differ in length.
+
+Cases whose `b-sys.npy` has a different number of systematic modes from the
+first case are skipped with a warning rather than raising: the corner grid is
+square, and `run_version_arr` in the notebooks does not always hold runs of a
+single mode count (`caseiv` has twelve).
+
+**CLI**
+
+`--result-dir`, `--fig-dir`, `--runs`, `--nsamples` (repeatable, one per
+variant), `--burn`, `--burn-mode`, `--thin`, `--no-titles`, `--dpi`,
+`--save` / `--no-save`, `--no-gif`, `--show`, `--demo`.
+
+`--demo` fabricates small synthetic chains in a temporary directory and runs
+the whole path through to the GIF, so the machinery can be exercised on a
+machine that has none of the run outputs (`/nvme2/scratch/...` is not mounted
+locally).
+
+**Outputs** (into `FIG_DIR`, only with `--save`)
+
+| File | Contents |
+|---|---|
+| `bsys_corner_100k_blink.pdf` / `.png` | corner plot from the first 100k iterations |
+| `bsys_corner_250k_blink.pdf` / `.png` | the same, from 250k, on the same axes |
+| `bsys_corner_blink.gif` | the two frames alternating |
+
+The `_blink` suffix keeps all of this clear of `bsys_corner_plot.pdf`.
+
+**Tests** — `tests/test_plot_corner_blink.py`, 29 tests, all passing
+
+New directory; `pytest` was already in the environment.  The suite runs
+entirely on synthetic chains from `make_demo_data()`, so it needs no run
+outputs: sample handling (truncation, both burn modes, thinning, the error
+paths), the shared ranges, the levelled diagonals, that two figures come out
+with identical limits on every panel, and that the saved PNG frames have the
+same pixel size.
+
+**Environment**
+
+`corner` was missing from the local `py10` environment and was installed
+(`corner 2.3.0`); it was already a declared dependency of the notebooks.
+
+**Docs** — `README.md` gains a `plot_corner_blink.py` section (what is held
+fixed between the figures, configuration, usage, outputs, tests), the layout
+tree gains the script and `tests/`, and the dependency list gains `pillow` and
+`pytest`.
+
+---
+
 ## 2026-09-03 — Raftery-Lewis run-length diagnostic in `convergence_tests.ipynb`
 
 Added the Raftery-Lewis diagnostic alongside the existing trace / split-Rhat /

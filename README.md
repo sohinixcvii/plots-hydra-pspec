@@ -17,6 +17,7 @@ estimation using the Gibbs-sampling framework implemented in
 ├── paper_plots_c_v2_nfgmodes.ipynb  # Same analysis, cases differ in Nfgmodes
 ├── paper_plots_c_v2_single_case.ipynb # Single-run version of the v2 notebook
 ├── convergence_tests.ipynb     # Convergence diagnostics, 1+ cases (see below)
+├── plot_corner_blink.py        # Blink-comparison corner plots, 100k vs 250k (see below)
 ├── plotting_functions.py       # Waterfall-plot helpers used by paper_plots_c.py
 ├── plot-test-data-results.py   # Standalone EoR delay power spectrum plotter (CLI)
 ├── plot_speed_up.py            # MPI speed-up / scaling plotter (CLI)
@@ -25,6 +26,8 @@ estimation using the Gibbs-sampling framework implemented in
 ├── Figures_sim_data/           # Output directory for generated figures
 │   ├── systematics_in_vis_space.pdf
 │   └── test_cases_in_dlfr.pdf
+├── tests/                      # pytest suite
+│   └── test_plot_corner_blink.py
 └── plotting_codes/             # Shared utility library
     ├── functions.py            # Fourier transforms, covariance helpers
     ├── plotting_functions.py   # Extended waterfall + diagnostic plot helpers
@@ -423,6 +426,99 @@ overwrites the paper figures.
 
 ---
 
+## Blink-comparison corner plots: `plot_corner_blink.py`
+
+Standalone companion to Figure 6 (`bsys_corner_plot.pdf`) of
+`paper_plots_c_v2.ipynb`.  That notebook draws **one** corner plot of the
+sampled systematic amplitudes `b_sys`; this script draws **one corner plot per
+chain length** — 100k and 250k Gibbs iterations by default — on identical axes,
+so the figures can be blinked against one another and any change in the
+posterior is a real change rather than a change of scale.
+
+It imports nothing from the notebooks and modifies nothing: its `corner_plot`
+is a copy of the notebook's with a `ranges` argument added.
+
+### What is held fixed between the figures
+
+| | How |
+|---|---|
+| Parameter ranges | `common_ranges()` takes the union over every variant and case, plus 5 % padding, and passes it to `corner.corner(range=...)` |
+| Histogram bin edges | follow from the shared ranges and a shared `BINS` |
+| Diagonal y-limits | `harmonise_diagonals()` levels them after drawing (`corner` scales each marginal to its own peak) |
+| Contour levels, smoothing, colours | shared configuration |
+| Image size on disk | `common_bbox()` saves every figure with the same bounding box, so the frames register pixel-for-pixel — `bbox_inches='tight'` alone would crop each figure to its own title widths |
+
+### Configuration
+
+Everything lives in the `CONFIG` block at the top of the file.
+
+| Setting | Meaning |
+|---|---|
+| `RESULT_DIR`, `FIG_DIR` | results directory holding the run sub-folders, and where figures are written |
+| `CASES` | runs overlaid **inside** each figure — `run`, optional `label`, optional `sys_amps_true` (truth lines are drawn from the first case that has them, as in the notebook) |
+| `VARIANTS` | one figure per entry, i.e. what you blink between: `nsamples`, optional `label`, `tag` and `result_dir` |
+| `BURN_MODE`, `BURN`, `THIN` | `'count'` drops the first `BURN` samples (the notebook default); `'percent'` drops the first `BURN` % of each chain, so both variants are burnt in proportionally |
+| `NSIGMA`, `BINS`, `SMOOTH`, `RANGE_PAD` | contour levels, shared binning, smoothing, range padding |
+| `FIG_STEM`, `FIG_SUFFIX`, `FORMATS`, `DPI` | output naming — `bsys_corner_100k_blink.pdf`, `..._250k_blink.pdf`, … ; `_blink` keeps them clear of the paper figures |
+| `MAKE_GIF`, `GIF_MS` | also write `bsys_corner_blink.gif`, alternating between the frames |
+
+`VARIANTS` covers both readings of "100k and 250k": leave `result_dir` unset and
+the same chain is truncated at 100k and at 250k; set it per variant when the two
+chain lengths are separate runs in separate directories.
+
+Cases whose `b-sys.npy` has a different number of systematic modes from the
+first case are skipped with a warning, since one corner figure is a single
+square grid.
+
+### Usage
+
+```bash
+# Default 100k vs 250k comparison; writes PDF + PNG + blink GIF
+conda run -n py10 python plot_corner_blink.py --save
+
+# Three chain lengths, from another results directory
+conda run -n py10 python plot_corner_blink.py \
+    --result-dir /path/to/paper_plots/sim_data/ \
+    --nsamples 50000 --nsamples 100000 --nsamples 250000 --save
+
+# Proportional burn-in instead of the notebook's fixed 10 samples
+conda run -n py10 python plot_corner_blink.py --burn-mode percent --burn 10 --save
+
+# Drop the medians above the diagonals (they move between variants)
+conda run -n py10 python plot_corner_blink.py --no-titles --save
+
+# Check the machinery with synthetic chains, no run outputs needed
+conda run -n py10 python plot_corner_blink.py --demo
+```
+
+From a notebook, the pieces can also be used directly:
+
+```python
+from plot_corner_blink import read_variant, build_figures, CASES
+
+data = [read_variant(dict(nsamples=n), CASES, result_dir) for n in (100_000, 250_000)]
+figs = build_figures(data)
+```
+
+### Outputs
+
+| File | Contents |
+|---|---|
+| `bsys_corner_<tag>_blink.pdf` / `.png` | one corner plot per chain length, all cases overlaid, shared axes |
+| `bsys_corner_blink.gif` | the PNG frames alternating, for blinking in a browser |
+
+### Tests
+
+```bash
+conda run -n py10 pytest tests/ -v
+```
+
+The suite runs entirely on synthetic chains (`make_demo_data`), so it needs
+none of the run outputs.  It checks the sample handling, the shared ranges, the
+levelled diagonals and that the saved frames come out the same size.
+
+---
+
 ## Utility: `plot-test-data-results.py`
 
 Plots the EoR delay power spectrum recovered from a single hydra-pspec run
@@ -516,6 +612,8 @@ emcee
 corner
 cmcrameri
 tqdm
+pillow          # blink GIF in plot_corner_blink.py (ships with matplotlib)
+pytest          # tests/ only
 ```
 
 Install `hydra-pspec-systematic` in development mode (from its repo root) so
