@@ -454,17 +454,37 @@ Everything lives in the `CONFIG` block at the top of the file.
 
 | Setting | Meaning |
 |---|---|
-| `RESULT_DIR`, `FIG_DIR` | results directory holding the run sub-folders, and where figures are written |
+| `RESULT_DIR_100K`, `RESULT_DIR_250K` | the two results directories the runs actually live in (`paper_plots/sim_data/` and `paper_plots/250k_run/`); `RESULT_DIR` is only the fallback for a variant that names neither |
+| `FIG_DIR` | where the figures are written |
 | `CASES` | runs overlaid **inside** each figure — `run`, optional `label`, optional `sys_amps_true` (truth lines are drawn from the first case that has them, as in the notebook) |
-| `VARIANTS` | one figure per entry, i.e. what you blink between: `nsamples`, optional `label`, `tag` and `result_dir` |
+| `VARIANTS` | one figure per entry, i.e. what you blink between: `nsamples` (`None` = whole chain), `result_dir`, and optionally `label`, `tag`, and `runs` / `cases` |
 | `BURN_MODE`, `BURN`, `THIN` | `'count'` drops the first `BURN` samples (the notebook default); `'percent'` drops the first `BURN` % of each chain, so both variants are burnt in proportionally |
 | `NSIGMA`, `BINS`, `SMOOTH`, `RANGE_PAD` | contour levels, shared binning, smoothing, range padding |
 | `FIG_STEM`, `FIG_SUFFIX`, `FORMATS`, `DPI` | output naming — `bsys_corner_100k_blink.pdf`, `..._250k_blink.pdf`, … ; `_blink` keeps them clear of the paper figures |
 | `MAKE_GIF`, `GIF_MS` | also write `bsys_corner_blink.gif`, alternating between the frames |
 
-`VARIANTS` covers both readings of "100k and 250k": leave `result_dir` unset and
-the same chain is truncated at 100k and at 250k; set it per variant when the two
-chain lengths are separate runs in separate directories.
+### Runs in different directories
+
+The 100k and 250k runs are separate runs in separate directories, so **each
+variant carries its own `result_dir`** and the defaults point at both.  Nothing
+is shared between the variants except the plot limits.
+
+```python
+VARIANTS = [
+    dict(nsamples=100_000, result_dir=RESULT_DIR_100K),
+    dict(nsamples=250_000, result_dir=RESULT_DIR_250K),
+]
+```
+
+- `nsamples=None` (or `all` on the command line) reads whatever the directory
+  holds, which is usually what you want when the directory *is* the 100k or
+  250k run.  Give a `tag` (`'100k'`, `'250k'`) and it names both the files and
+  the figure title, whatever the exact sample count turns out to be.
+- Comparing two truncations of one chain still works: give both variants the
+  same `result_dir` and different `nsamples`.
+- If the two directories do not use the same run sub-folder names, a variant
+  can override them with `runs=['...', ...]` (labels and true amplitudes are
+  taken from `CASES` by position) or with full `cases=[dict(...), ...]`.
 
 Cases whose `b-sys.npy` has a different number of systematic modes from the
 first case are skipped with a warning, since one corner figure is a single
@@ -473,12 +493,18 @@ square grid.
 ### Usage
 
 ```bash
-# Default 100k vs 250k comparison; writes PDF + PNG + blink GIF
+# Default 100k vs 250k comparison, one directory each; PDF + PNG + blink GIF
 conda run -n py10 python plot_corner_blink.py --save
 
-# Three chain lengths, from another results directory
+# The same, with both directories named on the command line.
+# --variant takes "N DIR [TAG]"; N may be "all" for the whole chain.
+conda run -n py10 python plot_corner_blink.py --save \
+    --variant all /nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/sim_data/ 100k \
+    --variant all /nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/250k_run/ 250k
+
+# Three truncations of the chains in one directory (--nsamples uses --result-dir)
 conda run -n py10 python plot_corner_blink.py \
-    --result-dir /path/to/paper_plots/sim_data/ \
+    --result-dir /path/to/paper_plots/250k_run/ \
     --nsamples 50000 --nsamples 100000 --nsamples 250000 --save
 
 # Proportional burn-in instead of the notebook's fixed 10 samples
@@ -494,9 +520,12 @@ conda run -n py10 python plot_corner_blink.py --demo
 From a notebook, the pieces can also be used directly:
 
 ```python
-from plot_corner_blink import read_variant, build_figures, CASES
+from plot_corner_blink import (read_variant, build_figures, CASES,
+                               RESULT_DIR_100K, RESULT_DIR_250K)
 
-data = [read_variant(dict(nsamples=n), CASES, result_dir) for n in (100_000, 250_000)]
+variants = [dict(nsamples=None, result_dir=RESULT_DIR_100K, tag='100k'),
+            dict(nsamples=None, result_dir=RESULT_DIR_250K, tag='250k')]
+data = [read_variant(v, CASES, RESULT_DIR_100K) for v in variants]
 figs = build_figures(data)
 ```
 
@@ -515,7 +544,9 @@ conda run -n py10 pytest tests/ -v
 
 The suite runs entirely on synthetic chains (`make_demo_data`), so it needs
 none of the run outputs.  It checks the sample handling, the shared ranges, the
-levelled diagonals and that the saved frames come out the same size.
+levelled diagonals, the two-directory path (per-variant `result_dir`, `runs`
+overrides and `--variant` parsing) and that the saved frames come out the same
+size.
 
 ---
 

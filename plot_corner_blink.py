@@ -17,16 +17,27 @@ plotting helper below is a copy of the notebook's ``corner_plot`` with a
 Configuration lives in the ``CONFIG`` block below; the most common overrides
 are also available on the command line.
 
+The 100k and 250k runs live in *different* directories, so each variant carries
+its own ``result_dir``; the defaults in the ``CONFIG`` block below point at
+both, and ``--variant`` does the same from the command line.  Comparing two
+truncations of one chain still works -- give both variants the same directory.
+
 Examples
 --------
 Draw the default 100k vs 250k comparison and save PDF + PNG + a blink GIF::
 
     conda run -n py10 python plot_corner_blink.py --save
 
-Compare three chain lengths from a different results directory::
+Name both directories explicitly (``all`` keeps whatever each chain holds)::
+
+    conda run -n py10 python plot_corner_blink.py --save \\
+        --variant all /nvme2/.../paper_plots/sim_data/ 100k \\
+        --variant all /nvme2/.../paper_plots/250k_run/ 250k
+
+Compare three truncations of the chains in one directory::
 
     conda run -n py10 python plot_corner_blink.py \\
-        --result-dir /path/to/paper_plots/sim_data/ \\
+        --result-dir /path/to/paper_plots/250k_run/ \\
         --nsamples 50000 --nsamples 100000 --nsamples 250000 --save
 
 Check the machinery without any of the real data on disk::
@@ -55,7 +66,12 @@ from matplotlib.ticker import FormatStrFormatter
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── Paths ─────────────────────────────────────────────────────────────────
-RESULT_DIR = '/nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/sim_data/'
+# The 100k and 250k runs live in separate directories, so each variant below
+# carries its own `result_dir`.  RESULT_DIR is only the fallback for a variant
+# that names none (and the default of --result-dir).
+RESULT_DIR_100K = '/nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/sim_data/'
+RESULT_DIR_250K = '/nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/250k_run/'
+RESULT_DIR = RESULT_DIR_100K
 FIG_DIR = '/nvme2/scratch/sohini/hydra-pspec-systematic/Figures'
 
 # ── Cases (runs overlaid inside every figure) ─────────────────────────────
@@ -69,17 +85,26 @@ CASES: List[Dict[str, Any]] = [
          sys_amps_true=[1. + 4j, 2. + 3j, 3. + 2j, 4. + 1j]),
     dict(run='high_dl_fr_0', label='Case II'),
     dict(run='low_dl_fr_20', label='Case III'),
-    dict(run='caseiv', label='Combined'),
+    # dict(run='caseiv', label='Combined'),   # twelve modes: needs its own run
 ]
 
 # ── Variants (one figure per entry; these are what you blink between) ─────
-# `nsamples` is the number of Gibbs iterations to keep, counted from the start
-# of the chain.  `result_dir` is optional and defaults to RESULT_DIR -- set it
-# when the two chain lengths live in different directories rather than being
-# the same chain truncated at two points.
+# Each entry is one figure:
+#
+#   nsamples    iterations to keep, counted from the start of the chain.
+#               None (or 'all' on the command line) keeps whatever is there.
+#   result_dir  where that variant's runs live; falls back to RESULT_DIR.
+#               The 100k and 250k runs are in different directories, so both
+#               are named explicitly below.
+#   cases/runs  optional per-variant override of CASES, for when the run
+#               sub-folders are not named the same way in both directories.
+#               `runs` is a list of sub-folder names; `cases` a list of full
+#               case dicts.  Labels and truths come from CASES by position
+#               when only `runs` is given.
+#   label/tag   optional; default to '<count> iterations' and '<count>'.
 VARIANTS: List[Dict[str, Any]] = [
-    dict(nsamples=100_000),
-    dict(nsamples=250_000),
+    dict(nsamples=100_000, result_dir=RESULT_DIR_100K),
+    dict(nsamples=250_000, result_dir=RESULT_DIR_250K),
 ]
 
 # ── Sample handling ───────────────────────────────────────────────────────
@@ -397,6 +422,59 @@ def harmonise_diagonals(figs: Sequence[plt.Figure], ndim: int) -> None:
             np.array(f.axes).reshape(ndim, ndim)[i, i].set_ylim(lo, hi)
 
 
+def resolve_cases(
+    variant: Dict[str, Any],
+    cases: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Return the cases one variant should read.
+
+    A variant normally reads the same runs as every other one, from its own
+    directory.  When the two directories do not name their run sub-folders
+    the same way, the variant can override them: ``cases`` replaces the list
+    outright, while ``runs`` renames the sub-folders and keeps the labels and
+    true amplitudes of `cases`, matched by position.
+
+    Parameters
+    ----------
+    variant : dict
+        Variant, possibly holding ``cases`` or ``runs``.
+    cases : sequence of dict
+        The default cases.
+
+    Returns
+    -------
+    list of dict
+        Cases to read for this variant.
+
+    Raises
+    ------
+    ValueError
+        If `variant` sets both ``cases`` and ``runs``, or if ``runs`` is
+        longer than `cases` (there would be no label to pair the extras with).
+    """
+    if variant.get('cases') is not None and variant.get('runs') is not None:
+        raise ValueError("give a variant either 'cases' or 'runs', not both")
+
+    if variant.get('cases') is not None:
+        return [dict(c) for c in variant['cases']]
+
+    runs = variant.get('runs')
+    if runs is None:
+        return [dict(c) for c in cases]
+
+    if len(runs) > len(cases):
+        raise ValueError(
+            f"variant lists {len(runs)} runs but only {len(cases)} cases are "
+            f"configured; give the variant full 'cases' dicts instead"
+        )
+    resolved = []
+    for run, case in zip(runs, cases):
+        merged = dict(case)
+        merged['run'] = run
+        resolved.append(merged)
+    return resolved
+
+
 def read_variant(
     variant: Dict[str, Any],
     cases: Sequence[Dict[str, Any]],
@@ -407,6 +485,12 @@ def read_variant(
 ) -> Dict[str, Any]:
     """Read every case of one variant (one chain length) from disk.
 
+    Each variant has its own results directory, so the chain lengths being
+    compared do not have to be two truncations of one run: the 100k and 250k
+    runs live in different directories and are read from wherever the variant
+    says.  A variant may also override which runs are read, for when the two
+    directories do not use the same sub-folder names.
+
     Cases whose chains have a different number of systematic modes from the
     first case are skipped with a warning, since one corner figure can only
     show a single square grid.
@@ -414,11 +498,14 @@ def read_variant(
     Parameters
     ----------
     variant : dict
-        ``{'nsamples': int, 'label': str (optional),
-        'result_dir': str (optional)}``.
+        ``{'nsamples': int or None, 'result_dir': str (optional),
+        'runs': list of str (optional), 'cases': list of dict (optional),
+        'label': str (optional), 'tag': str (optional)}``.  ``nsamples`` of
+        ``None`` keeps the whole chain.
     cases : sequence of dict
         ``{'run': str, 'label': str (optional),
-        'sys_amps_true': sequence (optional)}``.
+        'sys_amps_true': sequence (optional)}``.  Used unless the variant
+        overrides it.
     result_dir : str
         Default results directory, used when the variant sets none.
     burn, burn_mode, thin
@@ -427,11 +514,15 @@ def read_variant(
     Returns
     -------
     dict
-        ``{'label', 'nsamples', 'tag', 'samples', 'case_labels', 'truths'}``
-        where ``samples`` is a list of ``(Nkept, ndim)`` arrays.
+        ``{'label', 'nsamples', 'tag', 'result_dir', 'samples',
+        'case_labels', 'truths'}`` where ``samples`` is a list of
+        ``(Nkept, ndim)`` arrays and ``nsamples`` is the number actually read
+        (the shortest chain), not the number asked for.
     """
-    nsamples = int(variant['nsamples'])
+    nsamples = variant.get('nsamples')
+    nsamples = None if nsamples is None else int(nsamples)
     rdir = variant.get('result_dir') or result_dir
+    cases = resolve_cases(variant, cases)
 
     samples, labels, truths = [], [], None
     ndim = None
@@ -452,7 +543,7 @@ def read_variant(
 
         navail = np.load(os.path.join(run_dir, 'b-sys.npy'),
                          mmap_mode='r').shape[0]
-        if navail < nsamples:
+        if nsamples is not None and navail < nsamples:
             print(f'  NOTE {case["run"]}: only {navail:,} samples available '
                   f'(asked for {nsamples:,})')
 
@@ -465,10 +556,24 @@ def read_variant(
                       f'but {ndim} modes; truths not drawn')
                 truths = None
 
+    # What was actually read, which is what the figure should be called: the
+    # shortest chain of the variant, before burn-in and thinning.
+    if samples:
+        nread = min(s.shape[0] for s in samples) * max(int(thin), 1)
+        nread += int(burn) if burn_mode == 'count' else 0
+    else:
+        nread = nsamples or 0
+    # A tag given by the caller names the variant everywhere, so that reading
+    # a whole 250k directory can still be labelled "250k" rather than by the
+    # exact number of samples that happen to be on disk.
+    count = variant.get('tag') or format_count(
+        nsamples if nsamples is not None else nread)
+
     return dict(
-        label=variant.get('label', f'{format_count(nsamples)} iterations'),
-        nsamples=nsamples,
-        tag=variant.get('tag', format_count(nsamples)),
+        label=variant.get('label', f'{count} iterations'),
+        nsamples=nread,
+        tag=count,
+        result_dir=rdir,
         samples=samples,
         case_labels=labels,
         truths=truths,
@@ -738,8 +843,17 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                    help='run sub-folders to overlay (default: the CASES block)')
     p.add_argument('--nsamples', type=int, action='append', default=None,
                    metavar='N',
-                   help='chain length of one variant; repeat for each figure '
-                        '(default: 100000 and 250000)')
+                   help='chain length of one variant, read from --result-dir; '
+                        'repeat for each figure.  Use --variant instead when '
+                        'the variants live in different directories')
+    p.add_argument('--variant', nargs='+', action='append', default=None,
+                   metavar=('N DIR', 'TAG'),
+                   help='one variant read from its own directory: N is the '
+                        'chain length (or "all" for the whole chain), DIR the '
+                        'results directory, TAG the optional file-name tag.  '
+                        'Repeat once per figure, e.g. '
+                        '--variant 100000 /path/sim_data/ '
+                        '--variant 250000 /path/250k_run/')
     p.add_argument('--burn', type=int, default=BURN,
                    help=f'burn-in, in {BURN_MODE} (default: {BURN})')
     p.add_argument('--burn-mode', choices=('count', 'percent'),
@@ -764,6 +878,62 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def variants_from_args(args: argparse.Namespace) -> List[Dict[str, Any]]:
+    """Turn the command line into a list of variants.
+
+    ``--variant N DIR [TAG]`` is the form to use when the chain lengths live in
+    different directories, which is how the 100k and 250k runs are stored;
+    ``--nsamples N`` is the shorthand for several lengths of one directory.
+    Neither given falls back to the `VARIANTS` block.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments, holding ``variant`` and ``nsamples``.
+
+    Returns
+    -------
+    list of dict
+        Variants, ready for `read_variant`.
+
+    Raises
+    ------
+    ValueError
+        If ``--variant`` and ``--nsamples`` are combined, if a ``--variant``
+        does not have two or three fields, or if its chain length is neither
+        an integer nor ``'all'``.
+    """
+    if args.variant and args.nsamples:
+        raise ValueError('give either --variant or --nsamples, not both')
+
+    if args.nsamples:
+        return [dict(nsamples=n) for n in args.nsamples]
+
+    if not args.variant:
+        return [dict(v) for v in VARIANTS]
+
+    variants = []
+    for fields in args.variant:
+        if not 2 <= len(fields) <= 3:
+            raise ValueError(
+                f'--variant takes "N DIR [TAG]", got {" ".join(fields)!r}')
+        count, rdir = fields[0], fields[1]
+        if count.lower() == 'all':
+            nsamples = None
+        else:
+            try:
+                nsamples = int(count)
+            except ValueError:
+                raise ValueError(
+                    f'--variant: {count!r} is not a chain length or "all"'
+                ) from None
+        variant: Dict[str, Any] = dict(nsamples=nsamples, result_dir=rdir)
+        if len(fields) == 3:
+            variant['tag'] = fields[2]
+        variants.append(variant)
+    return variants
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Build and optionally save the blink-comparison corner plots.
 
@@ -781,28 +951,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     apply_plot_style()
 
     cases = ([dict(run=r) for r in args.runs] if args.runs else CASES)
-    variants = ([dict(nsamples=n) for n in args.nsamples]
-                if args.nsamples else VARIANTS)
+    try:
+        variants = variants_from_args(args)
+    except ValueError as exc:
+        print(f'ERROR: {exc}', file=sys.stderr)
+        return 1
 
     result_dir = args.result_dir
     fig_dir = args.fig_dir
     tmpdir = None
     if args.demo:
+        # Two separate directories, as the 100k and 250k runs really are.
         tmpdir = tempfile.TemporaryDirectory(prefix='corner_blink_demo_')
-        result_dir = make_demo_data(os.path.join(tmpdir.name, 'runs'),
-                                    cases[:3], nsamples=3000)
-        variants = [dict(nsamples=1000, tag='1k'),
-                    dict(nsamples=3000, tag='3k')]
+        dir_short = make_demo_data(os.path.join(tmpdir.name, 'short_run'),
+                                   cases[:3], nsamples=1000)
+        dir_long = make_demo_data(os.path.join(tmpdir.name, 'long_run'),
+                                  cases[:3], nsamples=3000)
+        result_dir = dir_short
+        variants = [dict(nsamples=None, result_dir=dir_short, tag='1k'),
+                    dict(nsamples=None, result_dir=dir_long, tag='3k')]
         if fig_dir == FIG_DIR:      # no --fig-dir given: keep the demo self-contained
             fig_dir = os.path.join(tmpdir.name, 'figs')
         args.save = True
-        print(f'DEMO: synthetic chains in {result_dir}')
+        print(f'DEMO: synthetic chains in {dir_short} and {dir_long}')
         print(f'DEMO: figures in {fig_dir}')
 
     try:
         variants_data = []
         for variant in variants:
-            print(f'Reading {format_count(int(variant["nsamples"]))} '
+            asked = variant.get('nsamples')
+            print(f'Reading {format_count(asked) if asked else "all"} samples '
                   f'from {variant.get("result_dir") or result_dir}')
             vdata = read_variant(variant, cases, result_dir,
                                  args.burn, args.burn_mode, args.thin)

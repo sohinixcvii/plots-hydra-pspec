@@ -2,6 +2,53 @@
 
 ---
 
+## 2026-09-04 — `plot_corner_blink.py`: the two chain lengths live in different directories
+
+The 100k and 250k runs are separate runs in separate directories
+(`paper_plots/sim_data/` and `paper_plots/250k_run/`), not two truncations of
+one chain, so the script now treats the results directory as a property of the
+variant rather than a global.
+
+**Changed**
+
+- `RESULT_DIR` split into `RESULT_DIR_100K` and `RESULT_DIR_250K`; `RESULT_DIR`
+  remains only as the fallback for a variant that names no directory, and as
+  the default of `--result-dir`.  The default `VARIANTS` now name one directory
+  each.
+- `read_variant()` accepts `nsamples=None`, meaning "read whatever the
+  directory holds" — the natural request when the directory *is* the 250k run.
+  A `tag` given by the caller now names the figure title as well as the files,
+  so a variant read whole is still labelled `250k` rather than by the exact
+  sample count on disk.  The returned dict gained `result_dir`, and its
+  `nsamples` is now the count actually read rather than the count asked for.
+- New `resolve_cases()`: a variant may override which runs it reads, for when
+  the two directories do not use the same sub-folder names — `runs=[...]`
+  renames the sub-folders while keeping the labels and true amplitudes of
+  `CASES` by position, or `cases=[...]` replaces the list outright.  Giving
+  both, or more `runs` than there are `CASES`, is an error.
+- New `variants_from_args()` and the `--variant N DIR [TAG]` flag (repeatable),
+  which is the command-line form of the above; `N` may be `all`.  `--nsamples`
+  is kept as the shorthand for several truncations of a single `--result-dir`,
+  and mixing the two flags is rejected.
+- `--demo` now fabricates *two* directories of different lengths, so the demo
+  exercises the path the real data takes.
+- `CASES` follows the notebook's current three-case configuration; the
+  twelve-mode `caseiv` entry is left commented out rather than deleted.
+
+**Unchanged** — everything that makes the figures blinkable: shared ranges and
+bins, levelled diagonals, the shared savefig bounding box, and the copy of the
+notebook's `corner_plot`.  No existing notebook or module was touched.
+
+**Tests** — `tests/test_plot_corner_blink.py` grows from 29 to 47, all passing.
+New cases cover `resolve_cases` (defaults, both override forms, both error
+paths), reading whole chains from two directories, `tag` naming the variant,
+per-variant `runs`, that figures built from two directories still share every
+axis, `--variant` parsing (three-field, `all`, the error paths, and that it
+cannot be mixed with `--nsamples`), and an end-to-end two-directory `main()`
+run whose PNG frames come out the same size.
+
+---
+
 ## 2026-09-04 — `plot_corner_blink.py`: blink-comparison corner plots (100k vs 250k)
 
 New standalone script, plus the repository's first `tests/` directory.  Nothing

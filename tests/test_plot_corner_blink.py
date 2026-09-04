@@ -257,3 +257,160 @@ def test_main_demo_runs(tmp_path):
 def test_main_reports_no_data(tmp_path, capsys):
     assert pcb.main(['--result-dir', str(tmp_path), '--runs', 'nope',
                      '--no-save']) == 1
+
+
+# ── resolve_cases ──────────────────────────────────────────────────────────
+
+def test_resolve_cases_defaults_to_the_global_cases(cases):
+    assert pcb.resolve_cases(dict(nsamples=10), cases) == cases
+
+
+def test_resolve_cases_runs_override_keeps_labels_and_truths(cases):
+    resolved = pcb.resolve_cases(dict(runs=['other_a', 'other_b']), cases)
+    assert [c['run'] for c in resolved] == ['other_a', 'other_b']
+    assert [c['label'] for c in resolved] == ['Case A', 'Case B']
+    assert resolved[0]['sys_amps_true'] == cases[0]['sys_amps_true']
+    assert cases[0]['run'] == 'run_a'          # the originals are untouched
+
+
+def test_resolve_cases_full_override(cases):
+    resolved = pcb.resolve_cases(
+        dict(cases=[dict(run='only', label='Only')]), cases)
+    assert [c['run'] for c in resolved] == ['only']
+
+
+def test_resolve_cases_rejects_both(cases):
+    with pytest.raises(ValueError):
+        pcb.resolve_cases(dict(cases=[dict(run='x')], runs=['x']), cases)
+
+
+def test_resolve_cases_rejects_extra_runs(cases):
+    with pytest.raises(ValueError):
+        pcb.resolve_cases(dict(runs=['a', 'b', 'c', 'd']), cases)
+
+
+# ── Variants in separate directories ───────────────────────────────────────
+
+@pytest.fixture
+def two_dirs(tmp_path, cases):
+    """Two results directories holding chains of different lengths."""
+    short = pcb.make_demo_data(str(tmp_path / 'sim_data'), cases,
+                               nsamples=300, seed=1)
+    long_ = pcb.make_demo_data(str(tmp_path / '250k_run'), cases,
+                               nsamples=900, seed=2)
+    return short, long_
+
+
+def test_read_variant_reads_whole_chain_when_nsamples_is_none(two_dirs, cases):
+    short, long_ = two_dirs
+    vshort = pcb.read_variant(dict(nsamples=None, result_dir=short),
+                              cases, '/nowhere', burn=0)
+    vlong = pcb.read_variant(dict(nsamples=None, result_dir=long_),
+                             cases, '/nowhere', burn=0)
+    assert [s.shape[0] for s in vshort['samples']] == [300, 300, 300]
+    assert [s.shape[0] for s in vlong['samples']] == [900, 900, 900]
+    assert vshort['result_dir'] == short
+    assert vlong['result_dir'] == long_
+
+
+def test_read_variant_tag_names_the_variant(two_dirs, cases):
+    _, long_ = two_dirs
+    vdata = pcb.read_variant(dict(nsamples=None, result_dir=long_, tag='250k'),
+                             cases, '/nowhere', burn=0)
+    assert vdata['tag'] == '250k'
+    assert vdata['label'] == '250k iterations'
+
+
+def test_read_variant_per_variant_runs(two_dirs, cases, tmp_path):
+    short, _ = two_dirs
+    os.rename(os.path.join(short, 'run_a'), os.path.join(short, 'renamed_a'))
+    vdata = pcb.read_variant(
+        dict(nsamples=None, result_dir=short,
+             runs=['renamed_a', 'run_b', 'run_c']),
+        cases, '/nowhere', burn=0)
+    assert len(vdata['samples']) == 3
+    assert vdata['case_labels'] == ['Case A', 'Case B', 'Case C']
+
+
+def test_figures_from_two_directories_share_axes(two_dirs, cases):
+    import matplotlib.pyplot as plt
+
+    short, long_ = two_dirs
+    variants_data = [
+        pcb.read_variant(dict(nsamples=None, result_dir=d, tag=t),
+                         cases, '/nowhere', burn=0)
+        for d, t in ((short, '100k'), (long_, '250k'))
+    ]
+    figs = pcb.build_figures(variants_data, show_titles=False)
+    ndim = variants_data[0]['samples'][0].shape[1]
+    ax0 = np.array(figs[0].axes).reshape(ndim, ndim)
+    ax1 = np.array(figs[1].axes).reshape(ndim, ndim)
+    for i in range(ndim):
+        for j in range(i + 1):
+            assert ax0[i, j].get_xlim() == pytest.approx(ax1[i, j].get_xlim())
+            assert ax0[i, j].get_ylim() == pytest.approx(ax1[i, j].get_ylim())
+    for fig in figs:
+        plt.close(fig)
+
+
+# ── variants_from_args ─────────────────────────────────────────────────────
+
+def test_variants_from_args_variant_flag():
+    args = pcb.parse_args(['--variant', '100000', '/a/', '100k',
+                           '--variant', 'all', '/b/'])
+    variants = pcb.variants_from_args(args)
+    assert variants[0] == dict(nsamples=100000, result_dir='/a/', tag='100k')
+    assert variants[1] == dict(nsamples=None, result_dir='/b/')
+
+
+def test_variants_from_args_nsamples_flag():
+    args = pcb.parse_args(['--nsamples', '100000', '--nsamples', '250000'])
+    assert pcb.variants_from_args(args) == [dict(nsamples=100000),
+                                            dict(nsamples=250000)]
+
+
+def test_variants_from_args_defaults_to_config():
+    variants = pcb.variants_from_args(pcb.parse_args([]))
+    assert variants == pcb.VARIANTS
+    assert [v['result_dir'] for v in variants] == [pcb.RESULT_DIR_100K,
+                                                   pcb.RESULT_DIR_250K]
+
+
+def test_variants_from_args_rejects_mixing():
+    args = pcb.parse_args(['--variant', 'all', '/a/', '--nsamples', '100'])
+    with pytest.raises(ValueError):
+        pcb.variants_from_args(args)
+
+
+@pytest.mark.parametrize('fields', [
+    ['100000'], ['100000', '/a/', 'tag', 'extra'], ['lots', '/a/'],
+])
+def test_variants_from_args_rejects_bad_variant(fields):
+    args = pcb.parse_args(['--variant'] + fields)
+    with pytest.raises(ValueError):
+        pcb.variants_from_args(args)
+
+
+def test_main_with_two_directories(tmp_path, two_dirs):
+    from PIL import Image
+
+    short, long_ = two_dirs
+    figs = tmp_path / 'figs'
+    status = pcb.main([
+        '--variant', 'all', short, '100k',
+        '--variant', 'all', long_, '250k',
+        '--runs', 'run_a', 'run_b', 'run_c',
+        '--fig-dir', str(figs), '--save', '--dpi', '30',
+    ])
+    assert status == 0
+
+    written = sorted(os.listdir(figs))
+    assert 'bsys_corner_100k_blink.png' in written
+    assert 'bsys_corner_250k_blink.png' in written
+    sizes = {Image.open(figs / f).size for f in written if f.endswith('.png')}
+    assert len(sizes) == 1
+
+
+def test_main_rejects_mixed_variant_flags(tmp_path):
+    assert pcb.main(['--variant', 'all', str(tmp_path),
+                     '--nsamples', '100', '--no-save']) == 1
