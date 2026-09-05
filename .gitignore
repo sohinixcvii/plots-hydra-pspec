@@ -6,13 +6,34 @@ __pycache__/
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
+# Test caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / tooling
+CLAUDE.md
+.claude/settings.local.json
+.vscode/
+.idea/
+
 # Script log output
 paper_plots_c_output.txt
-CLAUDE.md 
+*.log
 
-# Generated figures (uncomment if you want to exclude from version control)
-# paper_plots/
-# Figures_sim_data/
+# Generated figures — every figure in this repo is produced by a script or a
+# notebook, so none of them are version controlled.  Figures written to the
+# repository root (plot_corner_blink.py writes there when --fig-dir is left
+# at its default and that path does not exist) and the Figures_sim_data/
+# output directory.
+/*.pdf
+/*.png
+/*.gif
+/*.svg
+Figures_sim_data/
+
+# Superseded files kept locally rather than deleted (see README)
+_archive/
 
 # OS
 .DS_Store

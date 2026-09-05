@@ -11,42 +11,36 @@ estimation using the Gibbs-sampling framework implemented in
 
 ```
 .
-├── paper_plots_c.py            # Main script — generates all paper figures
-├── paper_plots_c.ipynb         # Notebook version (source of paper_plots_c.py)
-├── paper_plots_c_v2.ipynb      # Optimised notebook (recommended; see below)
+├── paper_plots_c_v2.ipynb           # Paper figures (main notebook)
 ├── paper_plots_c_v2_nfgmodes.ipynb  # Same analysis, cases differ in Nfgmodes
 ├── paper_plots_c_v2_single_case.ipynb # Single-run version of the v2 notebook
-├── convergence_tests.ipynb     # Convergence diagnostics, 1+ cases (see below)
-├── plot_corner_blink.py        # Blink-comparison corner plots, 100k vs 250k (see below)
-├── plotting_functions.py       # Waterfall-plot helpers used by paper_plots_c.py
-├── plot-test-data-results.py   # Standalone EoR delay power spectrum plotter (CLI)
-├── plot_speed_up.py            # MPI speed-up / scaling plotter (CLI)
-├── checking_result_files.ipynb # Notebook for sanity-checking result files
-├── 100k_runs_paper_plots.ipynb # Notebook for 100k-iteration run plots
-├── Figures_sim_data/           # Output directory for generated figures
-│   ├── systematics_in_vis_space.pdf
-│   └── test_cases_in_dlfr.pdf
-├── tests/                      # pytest suite
+├── convergence_tests.ipynb          # Convergence diagnostics, 1+ cases
+├── bias_test.ipynb                  # Bias checks on the recovered sky/systematics
+├── plot_corner_blink.py             # Blink-comparison corner plots, 100k vs 250k
+├── plotting_functions.py            # Waterfall-plot helpers used by the notebooks
+├── tests/                           # pytest suite
 │   └── test_plot_corner_blink.py
-└── plotting_codes/             # Shared utility library
-    ├── functions.py            # Fourier transforms, covariance helpers
-    ├── plotting_functions.py   # Extended waterfall + diagnostic plot helpers
-    ├── paper_plots.py          # SUPERSEDED — old plotting script (kept for reference)
-    └── paper_plots.ipynb       # Notebook companion to the superseded script
+└── plotting_codes/                  # Shared utility library
+    ├── functions.py                 # Fourier transforms, covariance helpers
+    └── tables.py                    # Table renderer + ESS/tau helpers
 ```
+
+Not in version control, but present in a working checkout: `Figures_sim_data/`
+and any other generated figures, `_archive/` (see
+[Repository conventions](#repository-conventions)), and the usual Python and
+Jupyter caches.
 
 ---
 
-## Main paper figure script: `paper_plots_c.py`
+## Paper figures: `paper_plots_c_v2.ipynb`
 
 Generates Figures 1, 3–11 of the paper and saves them to `fig_dir` as PDF.
-Console output (including tqdm progress bars) is also mirrored to
-`paper_plots_c_output.txt`.
+This is the notebook the paper figures come from; the other notebooks below
+are variations on it.
 
 ### Configuration
 
-Edit the **Configuration** block near the top of `paper_plots_c.py`
-(or the equivalent cell in the notebooks):
+Edit the **Configuration** cell near the top of the notebook:
 
 | Variable | Description |
 |---|---|
@@ -77,16 +71,6 @@ subdirectory of `result_dir` containing:
 └── ln-post.npy          # Log-posterior per iteration   (Niter,)
 ```
 
-### Usage
-
-```bash
-# Recommended: capture all output including tqdm
-python paper_plots_c.py 2>&1 | tee paper_plots_c_output.txt
-
-# Or simply:
-python paper_plots_c.py
-```
-
 ### Outputs
 
 | Figure | File | Description |
@@ -105,26 +89,22 @@ python paper_plots_c.py
 | 10 | `delay_power_spectrum_combined.pdf` | Delay power spectra for all cases (full + zoomed) |
 | 11 | `fg_sys_corr.pdf` | Foreground–systematics Pearson correlation (all cases) |
 
-Table 1 (ESS and autocorrelation times) is printed to stdout.
+Table 1 (ESS and autocorrelation times) is rendered in the notebook.
 
----
+### Design notes
 
-## Optimised notebook: `paper_plots_c_v2.ipynb`
+The notebook walks the Gibbs chain **once** and accumulates statistics online,
+rather than holding the samples in memory: Welford accumulators for the
+per-case means and variances, and a sum-of-products estimator for the
+foreground–systematics Pearson correlation.  The earlier three-pass version
+(removed from the repository; still in the git history) stored
+`3 × [Niter, Ntimes, Nfreqs]` complex64 arrays and needed ~144 GB per run
+against the ~144 MB this one uses.
 
-**Recommended over `paper_plots_c.ipynb` and `paper_plots_c.py`** for interactive
-use when memory is a concern.
-
-Key improvements over v1:
-
-| Aspect | v1 | v2 |
-|---|---|---|
-| Memory per run | ~144 GB (3 × [Niter, Ntimes, Nfreqs] complex64) | ~144 MB (online accumulators) |
-| Gibbs iteration passes | 3 separate passes | Single pass |
-| Per-case statistics | Full sample arrays stored | Welford online mean/variance |
-| Pearson correlation | Full arrays stored | Sum-of-products online estimator |
-| Figure 11 correctness | Used single shared `sys_modes_operator` | Per-case operator (bug fixed) |
-
-The v2 notebook also adds Figures 5 v2, 6 v2, and 7 v2 (all-cases multi-panel versions of the single-case figures).
+It also carries the all-cases multi-panel versions of the single-case figures
+(5 v2, 6 v2, 7 v2), and computes Figure 11 with a per-case
+`sys_modes_operator` — the earlier version reused one case's operator for all
+of them.
 
 ---
 
@@ -550,39 +530,9 @@ size.
 
 ---
 
-## Utility: `plot-test-data-results.py`
-
-Plots the EoR delay power spectrum recovered from a single hydra-pspec run
-against the true signal.
-
-```bash
-python plot-test-data-results.py \
-    --vis-eor   path/to/vis-eor.uvh5 \
-    --res-dir   path/to/results/0-1/ \
-    --conf-interval 95 \
-    --Nburn     0
-```
-
----
-
-## Utility: `plot_speed_up.py`
-
-Plots MPI scaling (speed-up vs baselines/rank, and total time vs number of
-ranks) from JSON timing files produced by a hydra-pspec run.
-
-```bash
-# Combine timing files from multiple run subdirectories and plot
-python plot_speed_up.py --results_dir path/to/runs/
-
-# Plot from an already-combined summary file
-python plot_speed_up.py --summary_file path/to/combined_timings.json
-```
-
----
-
 ## `plotting_functions.py` (root)
 
-Used directly by `paper_plots_c.py` and the notebooks.
+Used directly by every analysis notebook.
 
 | Function | Returns | Description |
 |---|---|---|
@@ -611,20 +561,33 @@ Shared numerical utilities.
 
 ---
 
-## `plotting_codes/plotting_functions.py`
+## `bias_test.ipynb`
 
-Extended waterfall and diagnostic helpers (more feature-rich than root
-`plotting_functions.py`; used by supplementary analysis notebooks).
+Bias checks on the recovered sky and systematics: reads the same run outputs as
+`paper_plots_c_v2.ipynb` and compares the posterior means against the true
+inputs.  Shares the same configuration cell layout and the same helpers
+(`plotting_codes/functions.py`, root `plotting_functions.py`).
 
-| Function | Description |
-|---|---|
-| `plot_waterfalls(...)` | Same as root version plus `fontsize`/`labelsize` kwargs |
-| `plot_waterfalls_from_dlfr(...)` | Same as root version plus `fontsize`/`labelsize` kwargs |
-| `plot_inputs(...)` | 2×4 grid: real/imag visibility components + systematics vector |
-| `plot_matrices(...)` | H operator + 2×4 covariance matrix grid |
-| `plot_results(...)` | Six comparison figures (vis, systematics, EoR, FG, sky, sys vector) |
-| `master_plotter(...)` | Generic 3-row × N-column grid (real/imag/abs per dataset) |
-| `plot_dps(...)` | Four DPS figures: true vs recovered, residuals, z-scores, error bars |
+---
+
+## Repository conventions
+
+**Generated figures are not version controlled.**  Every figure in this project
+is produced by a script or a notebook, so the repository tracks the code that
+makes them and not the output: `Figures_sim_data/`, the repository root
+(`plot_corner_blink.py` writes there if `--fig-dir` is left at a path that does
+not exist) and the `fig_dir` on scratch are all ignored.  Edit the script or the
+notebook cell that produces a figure, never the PDF.
+
+**Superseded files are archived, not deleted.**  `_archive/` holds files that
+have been taken out of use but kept for reference; it is not tracked, and the
+files remain in the git history either way.  It currently holds
+`plotting_codes/paper_plots.py` and `plotting_codes/paper_plots.ipynb`, the
+original plotting script and notebook, superseded by the `paper_plots_c_v2*`
+notebooks and imported by nothing.
+
+**Caches are ignored**: `__pycache__/`, `.pytest_cache/`, `.ipynb_checkpoints/`.
+None of them should ever appear in `git status`.
 
 ---
 
@@ -648,5 +611,5 @@ pytest          # tests/ only
 ```
 
 Install `hydra-pspec-systematic` in development mode (from its repo root) so
-that `sys.path.append('../hydra-pspec-systematic/')` in `paper_plots_c.py`
+that the `sys.path.append('../hydra-pspec-systematic/')` in the notebooks
 resolves correctly, or adjust the path to your local checkout.

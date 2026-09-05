@@ -2,6 +2,63 @@
 
 ---
 
+## 2026-09-05 — Repository cleanup: artefacts untracked, README brought up to date
+
+No logic was changed: no `.py`, `.ipynb` or test file was edited.  This is
+tracking, ignore rules and documentation only.
+
+**Untracked** (`git rm --cached`; the files stay on disk and in the history)
+
+| File | Why |
+|---|---|
+| `plotting_codes/__pycache__/functions.cpython-310.pyc` | build artefact, already matched by `.gitignore` but committed before it existed |
+| `plotting_codes/__pycache__/plotting_functions.cpython-310.pyc` | same, and its source was deleted in 4c9367d |
+| `Figures_sim_data/systematics_in_vis_space.pdf` | generated figure; the notebook cell that writes it is still there |
+| `Figures_sim_data/test_cases_in_dlfr.pdf` | same |
+| `plotting_codes/paper_plots.py` | superseded by the `paper_plots_c_v2*` notebooks; imported by nothing |
+| `plotting_codes/paper_plots.ipynb` | its notebook companion, likewise unused (3.7 MB) |
+
+**Archived** — the two superseded `plotting_codes/paper_plots.*` files were
+moved to `_archive/plotting_codes/` rather than deleted, per the project rule.
+`_archive/` is ignored, and the files remain in the git history regardless.
+
+**Kept** — everything else was checked for use before being left alone: root
+`plotting_functions.py` (imported by `paper_plots_c_v2*` and `bias_test`),
+`plotting_codes/functions.py` (same), `plotting_codes/tables.py` (imported by
+`convergence_tests` and two of the notebooks), and `bias_test.ipynb`, which is
+a live analysis notebook.
+
+**`.gitignore`** now also covers `.pytest_cache/`, `.coverage`, `htmlcov/`,
+`.claude/settings.local.json`, editor directories, `*.log`, `_archive/`, and
+generated figures — `Figures_sim_data/` (the commented-out hint that was
+already in the file, now switched on) and `/*.pdf`, `/*.png`, `/*.gif`,
+`/*.svg` at the repository root, where `plot_corner_blink.py` writes when
+`--fig-dir` is left at a path that does not exist.  `git status` is now empty
+in a working checkout.
+
+**README** — the layout tree and several sections still described files that
+were deleted in 1639852 and 4c9367d, months ago:
+
+- Removed the `plot-test-data-results.py`, `plot_speed_up.py` and
+  `plotting_codes/plotting_functions.py` sections; none of those files exist.
+- The `paper_plots_c.py` section is now *Paper figures:
+  `paper_plots_c_v2.ipynb`*.  The configuration table, the expected run
+  directory layout and the figure list were kept — they describe the notebook
+  just as well — while the shell usage block went, and the old "v1 vs v2"
+  comparison became a *Design notes* subsection that does not point at a file
+  that is gone.
+- The layout tree now lists what is actually there, including `bias_test.ipynb`
+  and `tests/`, and says what a working checkout holds that git does not.
+- New *Repository conventions* section: generated figures are not tracked,
+  `_archive/` holds superseded files, caches are ignored.
+- New short `bias_test.ipynb` section.
+
+**Checked** — `pytest tests/` (47 passed), `plot_corner_blink.py --demo`, and
+that `plotting_codes.functions`, `plotting_codes.tables` and root
+`plotting_functions` still import after the move.
+
+---
+
 ## 2026-09-04 — `plot_corner_blink.py`: the two chain lengths live in different directories
 
 The 100k and 250k runs are separate runs in separate directories
