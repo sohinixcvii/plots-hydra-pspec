@@ -17,9 +17,13 @@ estimation using the Gibbs-sampling framework implemented in
 ├── convergence_tests.ipynb          # Convergence diagnostics, 1+ cases
 ├── bias_test.ipynb                  # Bias checks on the recovered sky/systematics
 ├── plot_corner_blink.py             # Blink-comparison corner plots, 100k vs 250k
+├── plot_delta_bsys.py               # delta b_sys interval plot (corner-plot replacement)
+├── corner_padding.py                # Padding fix for the Figure 6 corner grid
 ├── plotting_functions.py            # Waterfall-plot helpers used by the notebooks
 ├── tests/                           # pytest suite
-│   └── test_plot_corner_blink.py
+│   ├── test_plot_corner_blink.py
+│   ├── test_plot_delta_bsys.py
+│   └── test_corner_padding.py
 └── plotting_codes/                  # Shared utility library
     ├── functions.py                 # Fourier transforms, covariance helpers
     └── tables.py                    # Table renderer + ESS/tau helpers
@@ -527,6 +531,157 @@ none of the run outputs.  It checks the sample handling, the shared ranges, the
 levelled diagonals, the two-directory path (per-variant `result_dir`, `runs`
 overrides and `--variant` parsing) and that the saved frames come out the same
 size.
+
+---
+
+## `Δ b_sys` interval plot: `plot_delta_bsys.py`
+
+Replacement for the corner plot of the systematic amplitudes — Figure 8 of
+`paper_plots_c_v2_single_case.ipynb`, drawn there as **Figure 8b** in the cell
+that follows it.  Instead of an `ndim` x `ndim` grid of the amplitudes, it
+draws one row per amplitude of the residual
+
+```
+delta b_sys,i = b_sys,i - b_sys,i(true)
+```
+
+so the truth is the dashed line through zero and the x axis is symmetric about
+it.  It is deliberately **not** a violin plot: nothing is smoothed or
+kernel-density estimated, every mark is an exact sample quantile.
+
+### What each row shows
+
+| Mark | Meaning |
+|---|---|
+| Dashed vertical line at 0 | the truth, centred in the figure |
+| Thick bar | 1 sigma credible interval (quantiles 0.15865 / 0.84135) |
+| Medium bar | 2 sigma (0.02275 / 0.97725) |
+| Thin bar | 3 sigma (0.00135 / 0.99865) — the levels the corner plot used |
+| Open circle | posterior median |
+| Diamond with caps, below the bar | posterior mean with a +/- sigma error bar |
+| Text beside the row | `median +hi -lo` at `nsigma` (the corner plot's diagonal titles), then the mean, sigma and mean/sigma |
+
+Everything the corner plot's titles carried is therefore on the figure; what
+is dropped is the pairwise structure, which the amplitudes of these runs do
+not use.  The annotations share one power of ten across the rows whenever the
+rows are within two decades of each other, so the column reads as one table.
+
+### Use from a notebook
+
+```python
+import plot_delta_bsys as pdb
+
+fig, summaries = pdb.plot_delta_bsys(
+    np.abs(b_sys_gcr[:Niter]),      # the array the corner plot is given
+    np.abs(sys_amps_true),
+    labels=[rf'$b_{{sys,{i}}}$' for i in range(1, b_sys_gcr.shape[1] + 1)],
+    burn=0,                         # the corner plot uses the whole chain too
+    nsigma=3,
+    units='absolute',               # 'sigma' divides each row by its own sigma
+    colors=colors,
+)
+print(pdb.summary_text(summaries))  # the same numbers as text
+```
+
+The chain must be real: reduce the complex `b_sys` first (`np.abs`, as the
+corner plot does) — a complex array is rejected rather than silently reduced.
+`summaries` is a list of `DeltaSummary` dataclasses (`mean`, `median`, `std`,
+`lower`, `upper`, `plus`, `minus`, `pull`, `truth`, `nsamples`), so the numbers
+can go straight into a table.
+
+| Argument | Meaning |
+|---|---|
+| `burn`, `thin` | chain handling; defaults 0 and 1, matching the corner plot cell |
+| `nsigma` | highest interval drawn and quoted (1, 2 or 3; default 3) |
+| `units` | `'absolute'` keeps the residual's own units; `'sigma'` divides each row by its posterior sigma, which is the readable choice when the amplitudes have very different scales |
+| `annotate`, `annotation_sig` | the text column and its significant digits |
+| `colors` | palette; `[0]` intervals, `[1]` mean, `[3]` the zero line — pass the notebook's `colors` |
+| `fig`, `ax`, `figsize`, `row_height`, font sizes | layout, for embedding in a larger figure |
+| `legend_loc` | `'outside'` (default) puts the key above the rows so it cannot cover one; any matplotlib location string puts it inside |
+
+### Smoke test
+
+```bash
+# builds the figure from a synthetic chain and prints the summary table
+conda run -n py10 python plot_delta_bsys.py
+conda run -n py10 python plot_delta_bsys.py --save delta_bsys.pdf --ndim 12
+```
+
+### Tests
+
+`tests/test_plot_delta_bsys.py`, also entirely on synthetic chains: the
+quantile levels against the corner plot's, the residual/burn/thin handling,
+the summary statistics against a Gaussian of known width, the number
+formatting (no double superscripts, shared powers of ten), and the figure
+itself — a centred axis, a line through zero, one annotated row per parameter.
+
+---
+
+## Corner-plot padding: `corner_padding.py`
+
+Fixes the large padding of Figure 6 (`bsys_corner_plot.pdf`) in
+`paper_plots_c_v2.ipynb` without touching how the samples are drawn.
+
+**Where the padding comes from.** The notebook's `corner_plot` helper ends with
+`fig.tight_layout()`.  `corner.corner` has already laid the grid out itself;
+`tight_layout` then re-measures every panel *including its tick labels*, pushes
+the outer margins inwards and inflates the gaps between panels.  The interior
+panels still carry tick numbers, the parameter labels are 35 pt and the
+diagonal titles are wider than their panels, so each of those pushes the
+spacing out further — and with three cases overlaid the helper runs
+`tight_layout` three times.
+
+**The fix** is the one the single-case notebook applies inside its own
+`corner_plot`: hide every tick label except the bottom row and left column,
+prune the ticks nearest each panel edge, pin the parameter labels with
+`set_label_coords`, and replace `tight_layout` with an explicit
+`subplots_adjust`.  `tighten_corner()` does it from the outside, as a
+post-processing pass on the finished figure.
+
+### Use in the notebook
+
+Add one call at the end of the Figure 6 cell, after the case loop and before
+`plt.savefig` — nothing else in the cell changes:
+
+```python
+import corner_padding as cp
+
+# ... the existing `for run_ver in run_version_arr:` loop, unchanged ...
+
+cp.tighten_corner(fig, ndim=4)          # ndim = number of systematic modes
+plt.savefig(fig_dir + '/bsys_corner_plot.pdf', bbox_inches='tight', dpi=100)
+```
+
+`subplots_adjust` has the last word, so the `tight_layout()` calls inside
+`corner_plot` no longer matter and the helper itself does not have to be
+edited.
+
+| Argument | Meaning |
+|---|---|
+| `ndim` | side of the panel grid; inferred from the axes count if omitted |
+| `label_fontsize`, `tick_fontsize`, `title_fontsize` | 35 / 25 / 30 by default, the notebook's sizes |
+| `max_n_ticks`, `tick_decimals`, `xtick_rotation` | outer tick density, fixed decimals, rotation |
+| `xlabel_y`, `ylabel_x` | parameter-label positions in axes coordinates (defaults −0.38 / −0.42 suit a 4 x 4 grid; a 12-parameter grid wants ≈ −0.65) |
+| `margins`, `wspace`, `hspace` | the `subplots_adjust` values that replace `tight_layout` |
+
+Only tick visibility, tick locators, label placement and the figure margins are
+set: samples, contour levels, histograms and title text are untouched.
+
+### Smoke test
+
+```bash
+# builds a synthetic 4 x 4 corner figure with three cases, tightens it and
+# prints the margins before and after
+conda run -n py10 python corner_padding.py
+conda run -n py10 python corner_padding.py --save corner_tight.pdf --ncases 3
+```
+
+### Tests
+
+`tests/test_corner_padding.py` — the grid extraction (including extra axes such
+as colorbars), which panels keep numbers, the tick formatting and rotation, the
+pinned labels and resized titles, the margins, and that the data in every panel
+is left exactly as it was.
 
 ---
 

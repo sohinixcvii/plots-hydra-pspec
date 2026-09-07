@@ -2,6 +2,94 @@
 
 ---
 
+## 2026-09-07 — Corner-plot padding fix for `paper_plots_c_v2.ipynb` (Figure 6)
+
+**New: `corner_padding.py`.** Figure 6 (`bsys_corner_plot.pdf`) is drawn by
+the notebook's `corner_plot` helper, which ends with `fig.tight_layout()`.
+That is where the padding comes from: `corner.corner` lays the grid out
+itself, and `tight_layout` then re-measures every panel including its tick
+labels, pulls the outer margins in and inflates the gaps between panels — with
+interior tick numbers, 35 pt parameter labels and diagonal titles wider than
+their panels all pushing it further, three times over for the three overlaid
+cases.
+
+`tighten_corner(fig, ndim=4)` applies the fix the single-case notebook makes
+inside its own `corner_plot`, but from the outside, as a post-processing pass
+on the finished figure: hide every tick label except the bottom row and left
+column, prune the ticks nearest each panel edge, pin the parameter labels with
+`set_label_coords`, shrink and place the diagonal titles, and replace
+`tight_layout` with an explicit `subplots_adjust` (margins 0.16/0.98/0.16/0.97,
+`wspace = hspace = 0.10`).  Since `subplots_adjust` has the last word, the
+helper's `tight_layout()` calls stop mattering and neither the helper nor any
+notebook cell has to be edited.
+
+**No notebook was changed.** The call is one line at the end of the Figure 6
+cell, before `plt.savefig`; the README section gives it verbatim.  Nothing
+here touches samples, contour levels, histograms or title text — only tick
+visibility, tick locators, label placement and the figure margins.
+
+Running the module directly builds a synthetic corner figure the way the
+notebook builds Figure 6 (`tight_layout` per case included) and prints the
+margins before and after, so the fix can be checked with none of the run
+outputs on disk.
+
+**Tests** — `tests/test_corner_padding.py`, 23 tests on synthetic corner
+figures: grid extraction with and without extra axes, which panels keep tick
+numbers, tick decimals, density and rotation, the pinned label coordinates and
+resized titles, the margins and the custom-margin path, and that every panel's
+artists and limits come through the pass unchanged.  Full suite: 134 passed.
+
+---
+
+## 2026-09-07 — `Δ b_sys` interval plot replaces the corner plot (single case)
+
+**New: `plot_delta_bsys.py`** — one row per systematic amplitude of the
+residual `Δ b_sys,i = b_sys,i - b_sys,i(true)`, centred on a dashed line
+through zero (the truth) with a symmetric x axis.  Each row carries graded
+1σ / 2σ / 3σ credible-interval bars from the same quantiles the corner plot
+used (0.15865/0.84135, 0.02275/0.97725, 0.00135/0.99865), the posterior median,
+and the mean with a ±σ error bar offset just below the bar.  Beside each row
+are the corner plot's diagonal-title numbers — `median +hi -lo` at `nsigma` —
+plus the mean, sigma and mean/sigma, so no summary statistic is lost in the
+swap.  Not a violin plot: nothing is smoothed, every mark is an exact sample
+quantile.
+
+The module holds no data and imports nothing from the notebooks; the chain is
+passed in.  `plot_delta_bsys()` returns the figure and a list of
+`DeltaSummary` dataclasses, and `summary_text()` prints the same numbers as a
+plain-text table.  Running the file directly draws a demo from a synthetic
+chain (`--save`, `--ndim`, `--nsigma`, `--units`), so it can be smoke-tested
+with none of the run outputs on disk.
+
+Numbers are formatted for math-text rather than with `%g`: a shared power of
+ten is factored out of the median and its deviations, which also avoids the
+double superscript matplotlib rejects when a mantissa's own exponent meets the
+`+`/`-` deviations.  `shared_exponent()` extends that across the rows whenever
+they lie within two decades, so the annotation column reads as one table.
+
+**`paper_plots_c_v2_single_case.ipynb`** — two cells added after the corner
+plot cell (Figure 8): a markdown header for **Figure 8b** and the cell that
+draws it from `b_sys_gcr` and `sys_amps_true`, with the same reduction
+(`np.abs`), the same `burn=0` and the same `nsigma=3` as the corner plot, and
+`colors` from the plot-specifications cell.  It writes
+`fig_dir/bsys_delta_plot.pdf` and prints the summary table.  **No existing
+cell was edited or removed and no maths was changed** — the corner plot cell
+is untouched and still runs.
+
+**Tests** — `tests/test_plot_delta_bsys.py`, 60 tests on synthetic chains:
+the quantile levels against the corner plot's, burn/thin handling and the
+input guards (complex chains rejected, mismatched truths, burnt-out chains),
+the summary statistics against a Gaussian of known width, the number
+formatting, and the figure itself (axis centred on zero, a dashed line through
+zero, one annotated row per parameter, `units='sigma'`, single-parameter and
+short-palette cases, saving to a file).  Full suite: 111 passed.
+
+**Documentation** — README gains a `Δ b_sys` interval plot section (what each
+mark means, the arguments, notebook usage, smoke test) and the layout tree and
+test list now name the new files.
+
+---
+
 ## 2026-09-05 — Repository cleanup: artefacts untracked, README brought up to date
 
 No logic was changed: no `.py`, `.ipynb` or test file was edited.  This is
