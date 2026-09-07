@@ -2,6 +2,45 @@
 
 ---
 
+## 2026-09-07 — `Δ b_sys` plot: no text on the figure, real and imaginary parts drawn separately
+
+**`plot_delta_bsys.py`**
+
+- **Real and imaginary parts as separate point sets.** A complex chain is now
+  split by `component_chains()` into the reductions named by `components`
+  (default `('real', 'imag')`; `'abs'` also available), and each parameter's
+  row carries one point set per component, offset above and below the row
+  centre by `component_offsets()` and coloured from the palette in order
+  (`colors[0]` Re, `colors[1]` Im).  A real chain — `np.abs(b_sys_gcr)`, the
+  corner plot's own reduction — still draws a single point set per row, so the
+  earlier call style keeps working.
+- **No text on the figure.** `annotate` now defaults to `False`: the figure
+  carries the axis labels and the key and nothing else.  The numbers are
+  unchanged and still returned — `DeltaSummary` records, parameter-major, now
+  carrying a `component` field — and `summary_text()` prints them with a
+  `part` column naming the component.  `annotate=True` restores the old text
+  column.
+- The key gains one coloured entry per component and draws the shape entries
+  (interval widths, median, mean) in a neutral grey, since those describe every
+  component alike.
+- `make_demo_chain()` returns a complex chain when given complex truths, and
+  the demo command line gains `--components` and `--annotate`.
+
+**`paper_plots_c_v2_single_case.ipynb`** — the Figure 8b cell now passes the
+complex `b_sys_gcr[:Niter]` and `sys_amps_true` straight through with
+`components=('real', 'imag')` instead of `np.abs(...)`, and its markdown
+describes the two point sets.  No other cell was touched and no maths changed;
+the corner plot cell above is untouched and still runs.
+
+**Tests** — `tests/test_plot_delta_bsys.py` grows to 81 tests: the component
+split and its guards, the symmetric offsets, two colours and 2 x ndim point
+sets off the row centres for a complex chain, the key naming both components,
+the `part` column in the summary table, an empty-summary table, complex demo
+chains, and that the axes carry no text unless `annotate=True`.  Full suite:
+151 passed.
+
+---
+
 ## 2026-09-07 — Corner-plot padding fix for `paper_plots_c_v2.ipynb` (Figure 6)
 
 **New: `corner_padding.py`.** Figure 6 (`bsys_corner_plot.pdf`) is drawn by

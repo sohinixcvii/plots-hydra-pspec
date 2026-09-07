@@ -546,25 +546,30 @@ delta b_sys,i = b_sys,i - b_sys,i(true)
 ```
 
 so the truth is the dashed line through zero and the x axis is symmetric about
-it.  It is deliberately **not** a violin plot: nothing is smoothed or
+it.  The **real and imaginary parts** of each complex amplitude are two point
+sets on that row, offset a little above and below its centre and coloured
+separately.  It is deliberately **not** a violin plot: nothing is smoothed or
 kernel-density estimated, every mark is an exact sample quantile.
 
-### What each row shows
+The figure carries no numbers of its own — only the axis labels and the key.
+The statistics come back with the figure and print as a table
+(`summary_text`); `annotate=True` puts them beside the rows instead.
+
+### What each point set shows
 
 | Mark | Meaning |
 |---|---|
 | Dashed vertical line at 0 | the truth, centred in the figure |
+| Colour | which component — Re and Im by default, one colour each |
 | Thick bar | 1 sigma credible interval (quantiles 0.15865 / 0.84135) |
 | Medium bar | 2 sigma (0.02275 / 0.97725) |
 | Thin bar | 3 sigma (0.00135 / 0.99865) — the levels the corner plot used |
 | Open circle | posterior median |
 | Diamond with caps, below the bar | posterior mean with a +/- sigma error bar |
-| Text beside the row | `median +hi -lo` at `nsigma` (the corner plot's diagonal titles), then the mean, sigma and mean/sigma |
 
-Everything the corner plot's titles carried is therefore on the figure; what
-is dropped is the pairwise structure, which the amplitudes of these runs do
-not use.  The annotations share one power of ten across the rows whenever the
-rows are within two decades of each other, so the column reads as one table.
+Everything the corner plot's diagonal titles carried — median, its `+`/`-`
+deviations, mean and sigma — is in the returned summaries; what is dropped is
+the pairwise structure, which the amplitudes of these runs do not use.
 
 ### Use from a notebook
 
@@ -572,48 +577,54 @@ rows are within two decades of each other, so the column reads as one table.
 import plot_delta_bsys as pdb
 
 fig, summaries = pdb.plot_delta_bsys(
-    np.abs(b_sys_gcr[:Niter]),      # the array the corner plot is given
-    np.abs(sys_amps_true),
+    b_sys_gcr[:Niter],              # complex -> Re and Im point sets
+    sys_amps_true,
     labels=[rf'$b_{{sys,{i}}}$' for i in range(1, b_sys_gcr.shape[1] + 1)],
+    components=('real', 'imag'),    # the default for a complex chain
     burn=0,                         # the corner plot uses the whole chain too
     nsigma=3,
     units='absolute',               # 'sigma' divides each row by its own sigma
     colors=colors,
 )
-print(pdb.summary_text(summaries))  # the same numbers as text
+print(pdb.summary_text(summaries))  # the numbers, kept off the figure
 ```
 
-The chain must be real: reduce the complex `b_sys` first (`np.abs`, as the
-corner plot does) — a complex array is rejected rather than silently reduced.
-`summaries` is a list of `DeltaSummary` dataclasses (`mean`, `median`, `std`,
-`lower`, `upper`, `plus`, `minus`, `pull`, `truth`, `nsamples`), so the numbers
-can go straight into a table.
+A complex chain is split into the components; a real one
+(`np.abs(b_sys_gcr)`, the corner plot's own reduction) draws a single point
+set per row.  `summaries` is a list of `DeltaSummary` dataclasses (`mean`,
+`median`, `std`, `lower`, `upper`, `plus`, `minus`, `pull`, `truth`,
+`nsamples`, `component`), parameter-major, so the numbers can go straight into
+a table.
 
 | Argument | Meaning |
 |---|---|
+| `components` | which reductions to draw: `'real'`, `'imag'`, `'abs'`; default `('real', 'imag')` for a complex chain, one point set for a real one |
 | `burn`, `thin` | chain handling; defaults 0 and 1, matching the corner plot cell |
-| `nsigma` | highest interval drawn and quoted (1, 2 or 3; default 3) |
-| `units` | `'absolute'` keeps the residual's own units; `'sigma'` divides each row by its posterior sigma, which is the readable choice when the amplitudes have very different scales |
-| `annotate`, `annotation_sig` | the text column and its significant digits |
-| `colors` | palette; `[0]` intervals, `[1]` mean, `[3]` the zero line — pass the notebook's `colors` |
+| `nsigma` | highest interval drawn (1, 2 or 3; default 3) |
+| `units` | `'absolute'` keeps the residual's own units; `'sigma'` divides each point set by its posterior sigma, which is the readable choice when the amplitudes have very different scales |
+| `annotate`, `annotation_sig` | off by default; `True` prints the summary numbers beside the rows |
+| `colors` | palette; `[0]`, `[1]`, … colour the components in order, `[3]` the zero line — pass the notebook's `colors` |
 | `fig`, `ax`, `figsize`, `row_height`, font sizes | layout, for embedding in a larger figure |
 | `legend_loc` | `'outside'` (default) puts the key above the rows so it cannot cover one; any matplotlib location string puts it inside |
 
 ### Smoke test
 
 ```bash
-# builds the figure from a synthetic chain and prints the summary table
+# builds the figure from a synthetic complex chain and prints the summary table
 conda run -n py10 python plot_delta_bsys.py
 conda run -n py10 python plot_delta_bsys.py --save delta_bsys.pdf --ndim 12
+conda run -n py10 python plot_delta_bsys.py --components abs --annotate
 ```
 
 ### Tests
 
 `tests/test_plot_delta_bsys.py`, also entirely on synthetic chains: the
 quantile levels against the corner plot's, the residual/burn/thin handling,
-the summary statistics against a Gaussian of known width, the number
-formatting (no double superscripts, shared powers of ten), and the figure
-itself — a centred axis, a line through zero, one annotated row per parameter.
+the component split (`real`/`imag`/`abs`, real chains left alone), the summary
+statistics against a Gaussian of known width, the number formatting (no double
+superscripts, shared powers of ten), and the figure itself — a centred axis, a
+line through zero, two differently-coloured point sets per row off the row
+centre, a key that names them, and no text on the axes unless asked for.
 
 ---
 

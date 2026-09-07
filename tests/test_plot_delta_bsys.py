@@ -29,6 +29,15 @@ def chain():
     return pdb.make_demo_chain(TRUTHS, nsamples=4000, seed=42)
 
 
+COMPLEX_TRUTHS = np.array([12. + 5j, 4. + 20j])
+
+
+@pytest.fixture
+def complex_chain():
+    """Synthetic complex chain, scattered in both parts."""
+    return pdb.make_demo_chain(COMPLEX_TRUTHS, nsamples=4000, seed=7)
+
+
 @pytest.fixture
 def summaries(chain):
     """Summaries of the synthetic chain."""
@@ -328,8 +337,16 @@ def test_plot_rows_run_top_to_bottom(chain):
         plt.close(fig)
 
 
-def test_plot_annotates_every_row(chain):
+def test_plot_is_free_of_text_by_default(chain):
     fig, _ = pdb.plot_delta_bsys(chain, TRUTHS)
+    try:
+        assert not fig.axes[0].texts
+    finally:
+        plt.close(fig)
+
+
+def test_plot_annotates_every_row_on_request(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, annotate=True)
     try:
         texts = [t.get_text() for t in fig.axes[0].texts]
         assert sum(r'\Delta' in t for t in texts) == 3
@@ -337,10 +354,11 @@ def test_plot_annotates_every_row(chain):
         plt.close(fig)
 
 
-def test_plot_can_skip_annotations(chain):
-    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, annotate=False)
+def test_plot_annotates_every_component(complex_chain):
+    fig, _ = pdb.plot_delta_bsys(complex_chain, COMPLEX_TRUTHS, annotate=True)
     try:
-        assert not fig.axes[0].texts
+        texts = [t.get_text() for t in fig.axes[0].texts]
+        assert sum(r'\Delta' in t for t in texts) == 2 * len(COMPLEX_TRUTHS)
     finally:
         plt.close(fig)
 
@@ -400,7 +418,138 @@ def test_plot_saves_a_file(chain, tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
+# ── Components ─────────────────────────────────────────────────────────────
+
+def test_component_chains_splits_a_complex_chain(complex_chain):
+    chains = pdb.component_chains(complex_chain, COMPLEX_TRUTHS)
+    assert [name for name, _, _ in chains] == ['real', 'imag']
+
+    (_, re_samples, re_truths), (_, im_samples, im_truths) = chains
+    assert np.allclose(re_samples, complex_chain.real)
+    assert np.allclose(im_samples, complex_chain.imag)
+    assert np.allclose(re_truths, COMPLEX_TRUTHS.real)
+    assert np.allclose(im_truths, COMPLEX_TRUTHS.imag)
+    assert not np.iscomplexobj(re_samples)
+
+
+def test_component_chains_leaves_a_real_chain_alone(chain):
+    (name, samples, truths), = pdb.component_chains(chain, TRUTHS)
+    assert name == 'value'
+    assert np.allclose(samples, chain)
+    assert np.allclose(truths, TRUTHS)
+
+
+def test_component_chains_honours_an_explicit_choice(complex_chain):
+    chains = pdb.component_chains(complex_chain, COMPLEX_TRUTHS,
+                                  components=['abs'])
+    (name, samples, truths), = chains
+    assert name == 'abs'
+    assert np.allclose(samples, np.abs(complex_chain))
+    assert np.allclose(truths, np.abs(COMPLEX_TRUTHS))
+
+
+def test_component_chains_rejects_unknown_components(complex_chain):
+    with pytest.raises(ValueError):
+        pdb.component_chains(complex_chain, COMPLEX_TRUTHS,
+                             components=['modulus'])
+
+
+def test_component_chains_rejects_empty_components(complex_chain):
+    with pytest.raises(ValueError):
+        pdb.component_chains(complex_chain, COMPLEX_TRUTHS, components=[])
+
+
+def test_component_chains_rejects_wrong_truths(complex_chain):
+    with pytest.raises(ValueError):
+        pdb.component_chains(complex_chain, COMPLEX_TRUTHS[:1])
+
+
+def test_component_offsets_are_symmetric():
+    offsets = pdb.component_offsets(2, 1.0)
+    assert offsets[0] == pytest.approx(-offsets[1])
+    assert offsets[0] < 0. < offsets[1]
+
+
+def test_component_offsets_of_one_component():
+    assert pdb.component_offsets(1, 1.0) == pytest.approx([0.])
+
+
+def test_complex_chain_gives_two_point_sets_per_row(complex_chain):
+    fig, summaries = pdb.plot_delta_bsys(complex_chain, COMPLEX_TRUTHS)
+    try:
+        assert len(summaries) == 2 * len(COMPLEX_TRUTHS)
+        # parameter-major: real then imag within each parameter
+        assert [s.component for s in summaries] == ['real', 'imag'] * 2
+        labels = [t.get_text() for t in fig.axes[0].get_yticklabels()]
+        assert labels == pdb.default_labels(len(COMPLEX_TRUTHS))
+    finally:
+        plt.close(fig)
+
+
+def test_complex_components_are_drawn_off_the_row_centre(complex_chain):
+    fig, _ = pdb.plot_delta_bsys(complex_chain, COMPLEX_TRUTHS,
+                                 row_height=1.0)
+    try:
+        bars = [ln for ln in fig.axes[0].lines
+                if len(ln.get_xdata()) == 2 and ln.get_linewidth() > 5.]
+        ys = sorted({round(float(ln.get_ydata()[0]), 6) for ln in bars})
+        assert len(ys) == 2 * len(COMPLEX_TRUTHS)       # no two share a line
+        assert 0. not in ys                             # offset from centre
+    finally:
+        plt.close(fig)
+
+
+def test_complex_components_use_different_colours(complex_chain):
+    fig, _ = pdb.plot_delta_bsys(complex_chain, COMPLEX_TRUTHS)
+    try:
+        bars = [ln for ln in fig.axes[0].lines
+                if len(ln.get_xdata()) == 2 and ln.get_linewidth() > 5.]
+        colours = {ln.get_color() for ln in bars}
+        assert colours == {pdb.PAPER_COLORS[0], pdb.PAPER_COLORS[1]}
+    finally:
+        plt.close(fig)
+
+
+def test_legend_names_both_components(complex_chain):
+    fig, _ = pdb.plot_delta_bsys(complex_chain, COMPLEX_TRUTHS)
+    try:
+        labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
+        assert pdb.COMPONENT_LABELS['real'] in labels
+        assert pdb.COMPONENT_LABELS['imag'] in labels
+    finally:
+        plt.close(fig)
+
+
+def test_legend_omits_component_entries_for_a_real_chain(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS)
+    try:
+        labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
+        assert labels[0] == 'Truth'
+        assert all(not t.startswith(r'$\mathrm{') for t in labels)
+    finally:
+        plt.close(fig)
+
+
+def test_summary_text_names_the_components(complex_chain):
+    _, summaries = pdb.plot_delta_bsys(complex_chain, COMPLEX_TRUTHS)
+    plt.close('all')
+    lines = pdb.summary_text(summaries).splitlines()
+    assert len(lines) == len(summaries) + 2
+    assert 'real' in lines[2] and 'imag' in lines[3]
+    assert 'b_sys,2' in lines[-1]
+
+
+def test_summary_text_of_nothing():
+    assert pdb.summary_text([]) == ''
+
+
 # ── Demo entry point ───────────────────────────────────────────────────────
+
+def test_make_demo_chain_complex_truths_give_a_complex_chain():
+    chain = pdb.make_demo_chain([1. + 1j, 2. - 3j], nsamples=300)
+    assert np.iscomplexobj(chain)
+    assert chain.shape == (300, 2)
+
 
 def test_make_demo_chain_shape_and_scatter():
     chain = pdb.make_demo_chain([1., 2.], nsamples=500, sigmas=[0.1, 0.2])

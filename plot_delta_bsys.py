@@ -6,39 +6,45 @@ A replacement for the corner plot of the systematic amplitudes
 corner plot is really about -- how far the posterior of each amplitude sits
 from its true value -- instead of the amplitudes themselves.
 
-Every parameter gets one row.  The row is centred on
+Every parameter gets one row, and the real and imaginary parts of that
+amplitude are drawn as two point sets on it, offset a little above and below
+the row centre.  Each is centred on
 
 .. math::
 
     \\Delta b_{\\mathrm{sys},i} = b_{\\mathrm{sys},i} - b^{\\mathrm{true}}_{\\mathrm{sys},i}
 
 so the truth is the vertical line at zero running down the middle of the
-figure, and the axis is symmetric about it.  On the row are
+figure, and the axis is symmetric about it.  On each point set are
 
 * graded credible-interval bars -- thick for :math:`1\\sigma`, thinner for
   :math:`2\\sigma` and :math:`3\\sigma`, from the same quantiles the corner plot
   used (0.15865/0.84135, 0.02275/0.97725, 0.00135/0.99865);
-* the posterior median, with the ``median +hi -lo`` deviations of the corner
-  plot's diagonal titles;
+* the posterior median, as an open circle;
 * the posterior mean with a :math:`\\pm\\sigma` error bar, drawn just below the
-  interval bar so that the standard deviation is visible as a length and not
-  only as a number.
+  interval bar so that the standard deviation is visible as a length.
 
-The numbers behind all of that are printed alongside each row, so the figure
-carries the same summary statistics as the corner plot's titles (median, the
-plus/minus deviations, mean and sigma) without the ndim x ndim panel grid.
+The figure carries no text of its own beyond the axis labels and the key.  The
+numbers -- median, the plus/minus deviations, mean, sigma -- come back with the
+figure as `DeltaSummary` records and print as a table with `summary_text`;
+``annotate=True`` puts them beside the rows instead.
+
 This is deliberately *not* a violin plot: no kernel-density estimate is drawn,
 only the exact sample quantiles.
 
-The module holds no data of its own.  The notebook passes it the real chain::
+The module holds no data of its own.  The notebook passes it the chain::
 
     import plot_delta_bsys as pdb
 
     fig, stats = pdb.plot_delta_bsys(
-        np.abs(b_sys_gcr[:Niter]),
-        np.abs(sys_amps_true),
+        b_sys_gcr[:Niter],          # complex -> real and imaginary parts
+        sys_amps_true,
         nsigma=3,
     )
+    print(pdb.summary_text(stats))
+
+A real chain (``np.abs(b_sys_gcr)``, the corner plot's own reduction) draws a
+single point set per row instead; ``components`` chooses explicitly.
 
 Run the module directly for a smoke test on a synthetic chain::
 
@@ -68,11 +74,36 @@ PAPER_COLORS: List[str] = ['#1d3557', '#ca6702', '#81babc', '#e63946', '#ffc8dd'
 # Line widths of the graded interval bars, thickest (1 sigma) first.
 BAR_WIDTHS: Tuple[float, ...] = (11.0, 5.5, 2.2)
 
-# Vertical offset, in row units, of the mean +/- sigma error bar.
-MEAN_OFFSET: float = 0.22
+# Neutral colour of the shape entries in the key (bar widths, markers): they
+# describe every component rather than one of them.
+NEUTRAL_COLOR: str = '#555555'
+
+# Vertical offset of the mean +/- sigma error bar below its interval bar, as a
+# fraction of the space one point set owns.
+MEAN_OFFSET: float = 0.42
+
+# Vertical separation of the components of one parameter, as a fraction of the
+# row height.
+COMPONENT_GAP: float = 0.42
 
 # Fraction of the half-range left as padding at each end of the x axis.
 XPAD: float = 0.12
+
+# The reductions a chain can be drawn through.
+COMPONENT_FUNCS = {
+    'real': np.real,
+    'imag': np.imag,
+    'abs': np.abs,
+    'value': lambda x: x,      # a chain that is already real
+}
+
+# How each reduction is named in the key.
+COMPONENT_LABELS = {
+    'real': r'$\mathrm{Re}$',
+    'imag': r'$\mathrm{Im}$',
+    'abs': r'$|\cdot|$',
+    'value': '',
+}
 
 
 # ── Statistics ─────────────────────────────────────────────────────────────
@@ -99,6 +130,9 @@ class DeltaSummary:
         Upper credible bounds of ``delta b_sys``, 1 sigma first.
     nsamples : int
         Number of samples the summary was computed from.
+    component : str
+        Which reduction of the chain this is -- ``'real'``, ``'imag'``,
+        ``'abs'``, or ``'value'`` for a chain that was already real.
     """
 
     label: str
@@ -109,6 +143,7 @@ class DeltaSummary:
     lower: List[float]
     upper: List[float]
     nsamples: int
+    component: str = 'value'
 
     @property
     def minus(self) -> List[float]:
@@ -153,6 +188,70 @@ def sigma_quantiles(nsigma: int) -> List[Tuple[float, float]]:
         upper = 0.5 * (1. + math.erf(k / math.sqrt(2.)))
         pairs.append((1. - upper, upper))
     return pairs
+
+
+def component_chains(
+    samples: np.ndarray,
+    truths: Sequence[complex],
+    components: Optional[Sequence[str]] = None,
+) -> List[Tuple[str, np.ndarray, np.ndarray]]:
+    """Split a chain into the real chains that will be drawn.
+
+    Parameters
+    ----------
+    samples : numpy.ndarray
+        Chain of shape ``(nsamples, ndim)``, complex or real.
+    truths : sequence of complex
+        The ``ndim`` true amplitudes, in the same form as ``samples``.
+    components : sequence of str, optional
+        Reductions to draw, from `COMPONENT_FUNCS`.  Default:
+        ``('real', 'imag')`` for a complex chain, ``('value',)`` for a real
+        one.
+
+    Returns
+    -------
+    list of tuple
+        ``(component, samples, truths)``, one entry per component, with real
+        arrays.
+
+    Raises
+    ------
+    ValueError
+        If ``samples`` is not 2D, ``truths`` does not match its second axis,
+        or a component name is not one of `COMPONENT_FUNCS`.
+
+    Notes
+    -----
+    The reduction is applied to the samples and to the truths separately, and
+    the residual is taken afterwards -- the same thing for the linear parts,
+    and for ``'abs'`` it is what the corner plot does.
+    """
+    S = np.asarray(samples)
+    t = np.asarray(truths)
+
+    if S.ndim != 2:
+        raise ValueError(f'samples must be 2D (nsamples, ndim), got {S.shape}')
+    if t.shape != (S.shape[1],):
+        raise ValueError(f'truths has shape {t.shape}, expected {(S.shape[1],)}')
+
+    if components is None:
+        components = ('real', 'imag') if np.iscomplexobj(S) else ('value',)
+    components = list(components)
+
+    if not components:
+        raise ValueError('components is empty')
+    unknown = [c for c in components if c not in COMPONENT_FUNCS]
+    if unknown:
+        raise ValueError(f'unknown components {unknown}; choose from '
+                         f'{sorted(COMPONENT_FUNCS)}')
+
+    chains = []
+    for name in components:
+        reduce = COMPONENT_FUNCS[name]
+        chains.append((name,
+                       np.asarray(reduce(S), dtype=float),
+                       np.asarray(reduce(t), dtype=float)))
+    return chains
 
 
 def delta_samples(
@@ -218,6 +317,7 @@ def summarise_delta(
     labels: Optional[Sequence[str]] = None,
     truths: Optional[Sequence[float]] = None,
     nsigma: int = 3,
+    component: str = 'value',
 ) -> List[DeltaSummary]:
     """Summarise a residual chain parameter by parameter.
 
@@ -231,6 +331,9 @@ def summarise_delta(
         True values, carried through into the summaries.  Default zeros.
     nsigma : int, optional
         Highest sigma level summarised.  Default 3, as in the corner plot.
+    component : str, optional
+        Reduction these residuals came through, recorded on each summary.
+        Default ``'value'``.
 
     Returns
     -------
@@ -271,6 +374,7 @@ def summarise_delta(
             lower=[float(bounds[2 * k, i]) for k in range(len(quantiles))],
             upper=[float(bounds[2 * k + 1, i]) for k in range(len(quantiles))],
             nsamples=int(D.shape[0]),
+            component=component,
         ))
     return summaries
 
@@ -591,28 +695,31 @@ def _draw_row(
     y: float,
     summary: DeltaSummary,
     scale: float,
-    colors: Sequence[str],
+    color: str,
     bar_widths: Sequence[float],
     marker_size: float,
+    mean_offset: float,
 ) -> None:
-    """Draw the interval bars and markers of one parameter onto ``ax``.
+    """Draw the interval bars and markers of one point set onto ``ax``.
 
     Parameters
     ----------
     ax : matplotlib.axes.Axes
         Axes to draw into.
     y : float
-        Row centre in data coordinates.
+        Centre of this point set, in data coordinates.
     summary : DeltaSummary
-        Summary of the parameter drawn on this row.
+        Summary of the parameter component drawn here.
     scale : float
         Divisor applied to every abscissa (see `_scale_factors`).
-    colors : sequence of str
-        Palette; ``colors[0]`` draws the intervals, ``colors[1]`` the mean.
+    color : str
+        Colour of the bars and both markers; one colour per component.
     bar_widths : sequence of float
         Line widths of the interval bars, thickest (1 sigma) first.
     marker_size : float
-        Size of the median and mean markers.
+        Size of the median marker.
+    mean_offset : float
+        Vertical offset of the mean error bar below the interval bar.
     """
     nlevels = len(summary.lower)
 
@@ -622,7 +729,7 @@ def _draw_row(
         ax.plot(
             [summary.lower[k] / scale, summary.upper[k] / scale],
             [y, y],
-            color=colors[0],
+            color=color,
             linewidth=width,
             alpha=1.0 - 0.15 * k,
             solid_capstyle='butt',
@@ -632,14 +739,14 @@ def _draw_row(
     # Mean +/- sigma, offset below the interval bar so the two do not overlap.
     ax.errorbar(
         summary.mean / scale,
-        y + MEAN_OFFSET,
+        y + mean_offset,
         xerr=summary.std / scale,
         fmt='D',
         markersize=marker_size * 0.55,
-        color=colors[1],
-        ecolor=colors[1],
+        color=color,
+        ecolor=color,
         elinewidth=2.0,
-        capsize=6,
+        capsize=5,
         capthick=2.0,
         zorder=7,
     )
@@ -651,7 +758,7 @@ def _draw_row(
         marker='o',
         markersize=marker_size,
         markerfacecolor='white',
-        markeredgecolor=colors[0],
+        markeredgecolor=color,
         markeredgewidth=2.0,
         linestyle='none',
         zorder=8,
@@ -692,15 +799,99 @@ def _axis_limit(
     return limit * (1. + pad)
 
 
+def _legend_handles(
+    component_names: Sequence[str],
+    component_colors: Sequence[str],
+    nsigma: int,
+    zero_color: str,
+    marker_size: float,
+) -> List[Line2D]:
+    """Key entries: the truth line, one per component, then the shapes.
+
+    Parameters
+    ----------
+    component_names : sequence of str
+        Components drawn, from `COMPONENT_FUNCS`.
+    component_colors : sequence of str
+        Their colours, in the same order.
+    nsigma : int
+        Highest credible interval drawn.
+    zero_color : str
+        Colour of the line through zero.
+    marker_size : float
+        Size of the median marker.
+
+    Returns
+    -------
+    list of matplotlib.lines.Line2D
+        Proxy artists for ``ax.legend``.
+
+    Notes
+    -----
+    The component entries carry the colours; the interval widths and the two
+    markers describe every component alike, so they are drawn in
+    `NEUTRAL_COLOR` whenever more than one component is on the figure.
+    """
+    handles = [Line2D([0], [0], color=zero_color, ls='--', lw=2.5,
+                      label='Truth')]
+
+    named = [n for n in component_names if COMPONENT_LABELS.get(n, n)]
+    if len(named) > 1:
+        for name, color in zip(component_names, component_colors):
+            handles.append(Line2D([0], [0], color=color, lw=BAR_WIDTHS[0],
+                                  label=COMPONENT_LABELS.get(name, name)))
+        shape_color = NEUTRAL_COLOR
+    else:
+        shape_color = component_colors[0]
+
+    for k in range(min(nsigma, len(BAR_WIDTHS))):
+        handles.append(Line2D([0], [0], color=shape_color, lw=BAR_WIDTHS[k],
+                              alpha=1.0 - 0.15 * k,
+                              label=rf'${k + 1}\sigma$ interval'))
+
+    handles += [
+        Line2D([0], [0], color=shape_color, marker='o', ls='none',
+               markersize=marker_size, markerfacecolor='white',
+               markeredgewidth=2.0, label='Median'),
+        Line2D([0], [0], color=shape_color, marker='D', ls='none',
+               markersize=marker_size * 0.55, label=r'Mean $\pm\ \sigma$'),
+    ]
+    return handles
+
+
+def component_offsets(ncomponents: int, row_height: float) -> np.ndarray:
+    """Vertical offsets of a parameter's components about its row centre.
+
+    Parameters
+    ----------
+    ncomponents : int
+        Number of components drawn per parameter.
+    row_height : float
+        Spacing between parameter rows, in data units.
+
+    Returns
+    -------
+    numpy.ndarray
+        One offset per component, symmetric about zero; a single zero when
+        there is only one component.
+    """
+    if ncomponents < 2:
+        return np.zeros(max(ncomponents, 1))
+
+    span = COMPONENT_GAP * row_height
+    return span * (np.arange(ncomponents) - 0.5 * (ncomponents - 1))
+
+
 def plot_delta_bsys(
     samples: np.ndarray,
-    truths: Sequence[float],
+    truths: Sequence[complex],
     labels: Optional[Sequence[str]] = None,
+    components: Optional[Sequence[str]] = None,
     burn: int = 0,
     thin: int = 1,
     nsigma: int = 3,
     units: str = 'absolute',
-    annotate: bool = True,
+    annotate: bool = False,
     annotation_sig: int = 3,
     colors: Optional[Sequence[str]] = None,
     fig: Optional[plt.Figure] = None,
@@ -722,32 +913,39 @@ def plot_delta_bsys(
     Parameters
     ----------
     samples : numpy.ndarray
-        Real chain of shape ``(nsamples, ndim)``, e.g. ``np.abs(b_sys_gcr)``.
-    truths : sequence of float
-        True amplitudes, reduced the same way as ``samples``.
+        Chain of shape ``(nsamples, ndim)``.  A complex chain is drawn as its
+        real and imaginary parts, two point sets on each parameter's row; a
+        real chain (``np.abs(b_sys_gcr)``, as the corner plot uses) gives one.
+    truths : sequence of complex
+        True amplitudes, in the same form as ``samples``.
     labels : sequence of str, optional
         Parameter labels.  Default ``r'$b_{sys,i}$'``.
+    components : sequence of str, optional
+        Reductions to draw, from `COMPONENT_FUNCS` -- ``'real'``, ``'imag'``,
+        ``'abs'``.  Default: ``('real', 'imag')`` for a complex chain.
     burn : int, optional
         Samples discarded from the head of the chain.  Default 0.
     thin : int, optional
         Keep every ``thin``-th sample.  Default 1.
     nsigma : int, optional
-        Highest credible interval drawn and quoted.  Default 3.
+        Highest credible interval drawn.  Default 3.
     units : {'absolute', 'sigma'}, optional
-        Draw the residuals in their own units, or divided by each parameter's
+        Draw the residuals in their own units, or divided by each point set's
         sigma.  Default ``'absolute'``.
     annotate : bool, optional
-        Print the summary numbers beside each row.  Default True.
+        Print the summary numbers beside each row.  Default False: the figure
+        carries no text, and the numbers come back with it instead.
     annotation_sig : int, optional
         Significant digits in the annotations.  Default 3, as in the corner
         plot's titles.
     colors : sequence of str, optional
-        Palette; ``colors[0]`` intervals, ``colors[1]`` mean, ``colors[3]``
-        zero line.  Default `PAPER_COLORS`.
+        Palette; ``colors[0]``, ``colors[1]``, ... colour the components in
+        order and ``colors[3]`` the zero line.  Default `PAPER_COLORS`.
     fig, ax : matplotlib objects, optional
         Draw into an existing figure/axes instead of making one.
     figsize : tuple of float, optional
-        Figure size in inches.  Default scales with the number of parameters.
+        Figure size in inches.  Default scales with the number of parameters
+        and components.
     row_height : float, optional
         Vertical spacing between parameter rows, in data units.  Default 1.15.
     label_fontsize, tick_fontsize, annotation_fontsize, legend_fontsize : float, optional
@@ -769,50 +967,72 @@ def plot_delta_bsys(
     fig : matplotlib.figure.Figure
         The figure drawn into.
     summaries : list of DeltaSummary
-        The numbers behind it, in parameter order.
+        The numbers behind it, parameter by parameter and, within a
+        parameter, component by component.
 
     Notes
     -----
     The zero line is the truth, so it is placed at the centre of a symmetric
     x axis.  Nothing here estimates a density: the bars are sample quantiles.
     """
-    deltas = delta_samples(samples, truths, burn=burn, thin=thin)
-    summaries = summarise_delta(deltas, labels=labels, truths=truths,
-                                nsigma=nsigma)
-    ndim = len(summaries)
+    chains = component_chains(samples, truths, components)
+    names = [name for name, _, _ in chains]
+
+    per_component = [
+        summarise_delta(
+            delta_samples(part, part_truths, burn=burn, thin=thin),
+            labels=labels, truths=part_truths, nsigma=nsigma, component=name,
+        )
+        for name, part, part_truths in chains
+    ]
+    ndim = len(per_component[0])
+
+    # Parameter-major, so the returned list reads down the figure.
+    summaries = [per_component[c][i]
+                 for i in range(ndim) for c in range(len(chains))]
+    scales = _scale_factors(summaries, units)
+    scale_of = {id(s): sc for s, sc in zip(summaries, scales)}
 
     palette = list(colors) if colors is not None else PAPER_COLORS
     if len(palette) < 4:
         palette = list(palette) + PAPER_COLORS[len(palette):]
-
-    scales = _scale_factors(summaries, units)
+    component_colors = [palette[c % len(palette)] for c in range(len(chains))]
 
     own_figure = ax is None
     if ax is None:
         if figsize is None:
             width = 20. if annotate else 14.
-            figsize = (width, max(5.0, 1.5 * ndim + 3.0))
+            height = max(5.0, (1.1 + 0.5 * len(chains)) * ndim + 3.0)
+            figsize = (width, height)
         if fig is None:
             fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111)
     else:
         fig = ax.figure
 
-    # Rows top-to-bottom in parameter order.
+    # Rows top-to-bottom in parameter order; components offset within a row.
     ys = row_height * np.arange(ndim)
+    offsets = component_offsets(len(chains), row_height)
+    span = (abs(offsets[1] - offsets[0]) if len(chains) > 1
+            else 0.5 * row_height)
+    mean_offset = MEAN_OFFSET * span
 
     # The truth, down the middle of the figure.
     ax.axvline(0., color=palette[3], linestyle='--', linewidth=2.5, zorder=2)
 
-    for y, summary, scale in zip(ys, summaries, scales):
-        _draw_row(ax, y, summary, scale, palette, BAR_WIDTHS, marker_size)
+    for c, summaries_c in enumerate(per_component):
+        for y, summary in zip(ys + offsets[c], summaries_c):
+            _draw_row(ax, y, summary, scale_of[id(summary)],
+                      component_colors[c], BAR_WIDTHS, marker_size,
+                      mean_offset)
 
     limit = _axis_limit(summaries, scales)
     ax.set_xlim(-limit, limit)
     ax.set_ylim(ys[-1] + row_height * 0.75, ys[0] - row_height * 0.75)
 
     ax.set_yticks(ys)
-    ax.set_yticklabels([s.label for s in summaries], fontsize=label_fontsize)
+    ax.set_yticklabels([s.label for s in per_component[0]],
+                       fontsize=label_fontsize)
     ax.tick_params(axis='both', direction='out', length=6, width=1.5,
                    labelsize=tick_fontsize)
 
@@ -831,34 +1051,21 @@ def plot_delta_bsys(
     if annotate:
         # One power of ten for the whole column, where the rows allow it.
         exponent = shared_exponent(summaries, nsigma=nsigma)
-        for y, summary in zip(ys, summaries):
-            ax.annotate(
-                format_summary(summary, sig=annotation_sig, nsigma=nsigma,
-                               exponent=exponent),
-                xy=(1.02, y),
-                xycoords=('axes fraction', 'data'),
-                va='center',
-                ha='left',
-                fontsize=annotation_fontsize,
-                annotation_clip=False,
-            )
+        for c, summaries_c in enumerate(per_component):
+            for y, summary in zip(ys + offsets[c], summaries_c):
+                ax.annotate(
+                    format_summary(summary, sig=annotation_sig, nsigma=nsigma,
+                                   exponent=exponent),
+                    xy=(1.02, y),
+                    xycoords=('axes fraction', 'data'),
+                    va='center',
+                    ha='left',
+                    fontsize=annotation_fontsize,
+                    annotation_clip=False,
+                )
 
-    handles = [
-        Line2D([0], [0], color=palette[3], ls='--', lw=2.5, label='Truth'),
-        Line2D([0], [0], color=palette[0], lw=BAR_WIDTHS[0],
-               label=r'$1\sigma$ interval'),
-    ]
-    for k in range(1, min(nsigma, len(BAR_WIDTHS))):
-        handles.append(Line2D([0], [0], color=palette[0],
-                              lw=BAR_WIDTHS[k], alpha=1.0 - 0.15 * k,
-                              label=rf'${k + 1}\sigma$ interval'))
-    handles += [
-        Line2D([0], [0], color=palette[0], marker='o', ls='none',
-               markersize=marker_size, markerfacecolor='white',
-               markeredgewidth=2.0, label='Median'),
-        Line2D([0], [0], color=palette[1], marker='D', ls='none',
-               markersize=marker_size * 0.55, label=r'Mean $\pm\ \sigma$'),
-    ]
+    handles = _legend_handles(names, component_colors, nsigma, palette[3],
+                              marker_size)
     if legend_loc == 'outside':
         # Above the rows, so no row can be covered by the key.
         ax.legend(handles=handles, loc='lower center',
@@ -888,26 +1095,34 @@ def summary_text(summaries: Sequence[DeltaSummary], fmt: str = '.3g') -> str:
     Parameters
     ----------
     summaries : sequence of DeltaSummary
-        Parameter summaries.
+        Parameter summaries, as returned by `plot_delta_bsys`.
     fmt : str, optional
         Format spec for every number.  Default ``'.3g'``.
 
     Returns
     -------
     str
-        One header line and one line per parameter: truth, mean, median,
-        sigma, the highest-sigma deviations and the pull.
+        One header line and one line per point set: parameter, component,
+        truth, mean, median, sigma, the highest-sigma deviations and the mean
+        in units of sigma.
     """
-    nsig = len(summaries[0].lower) if summaries else 0
-    head = (f'{"param":>12} {"truth":>12} {"mean":>12} {"median":>12} '
-            f'{"sigma":>12} {f"+{nsig}sig":>12} {f"-{nsig}sig":>12} '
-            f'{"mu/sig":>8}')
+    if not summaries:
+        return ''
+
+    nsig = len(summaries[0].lower)
+    parts = sorted({s.component for s in summaries})
+    ncomponents = len(parts)
+
+    head = (f'{"param":>10} {"part":>6} {"truth":>12} {"mean":>12} '
+            f'{"median":>12} {"sigma":>12} {f"+{nsig}sig":>12} '
+            f'{f"-{nsig}sig":>12} {"mu/sig":>8}')
     lines = [head, '-' * len(head)]
 
-    for i, s in enumerate(summaries, start=1):
+    for k, s in enumerate(summaries):
+        index = k // ncomponents + 1
         lines.append(
-            f'{f"b_sys,{i}":>12} {s.truth:>12{fmt}} {s.mean:>12{fmt}} '
-            f'{s.median:>12{fmt}} {s.std:>12{fmt}} '
+            f'{f"b_sys,{index}":>10} {s.component:>6} {s.truth:>12{fmt}} '
+            f'{s.mean:>12{fmt}} {s.median:>12{fmt}} {s.std:>12{fmt}} '
             f'{s.plus[-1]:>12{fmt}} {s.minus[-1]:>12{fmt}} {s.pull:>8.2f}'
         )
     return '\n'.join(lines)
@@ -925,8 +1140,9 @@ def make_demo_chain(
 
     Parameters
     ----------
-    truths : sequence of float, optional
-        True amplitudes the chain scatters around.
+    truths : sequence of float or complex, optional
+        True amplitudes the chain scatters around.  Complex truths give a
+        complex chain, scattered in both parts.
     nsamples : int, optional
         Chain length.  Default 5000.
     sigmas : sequence of float, optional
@@ -937,12 +1153,20 @@ def make_demo_chain(
     Returns
     -------
     numpy.ndarray
-        Real samples of shape ``(nsamples, ndim)``.
+        Samples of shape ``(nsamples, ndim)``, complex if ``truths`` is.
     """
-    t = np.asarray(truths, float)
+    t = np.asarray(truths)
     s = (1e-3 * np.abs(t) if sigmas is None else np.asarray(sigmas, float))
     rng = np.random.default_rng(seed)
-    return t[None, :] + s[None, :] * rng.standard_normal((nsamples, t.size))
+
+    shape = (nsamples, t.size)
+    if np.iscomplexobj(t):
+        noise = (rng.standard_normal(shape)
+                 + 1.j * rng.standard_normal(shape)) / np.sqrt(2.)
+    else:
+        noise = rng.standard_normal(shape)
+
+    return t[None, :] + s[None, :] * noise
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -956,7 +1180,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     Returns
     -------
     argparse.Namespace
-        Parsed arguments: ``save``, ``nsigma``, ``units``, ``ndim``.
+        Parsed arguments: ``save``, ``nsigma``, ``units``, ``ndim``,
+        ``components``, ``annotate``.
     """
     parser = argparse.ArgumentParser(
         description='Smoke test of the delta b_sys interval plot on a '
@@ -970,6 +1195,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                         help="x-axis units (default 'absolute')")
     parser.add_argument('--ndim', type=int, default=4,
                         help='number of synthetic amplitudes (default 4)')
+    parser.add_argument('--components', default='real,imag',
+                        help="comma-separated reductions to draw "
+                             "(default 'real,imag')")
+    parser.add_argument('--annotate', action='store_true',
+                        help='also print the summary numbers on the figure')
     return parser.parse_args(argv)
 
 
@@ -989,11 +1219,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
 
     mpl.use('Agg')
-    truths = np.linspace(4., 20., args.ndim)
+    components = [c.strip() for c in args.components.split(',') if c.strip()]
+    truths = (np.linspace(4., 20., args.ndim)
+              + 1.j * np.linspace(20., 4., args.ndim))
     chain = make_demo_chain(truths, nsamples=20000)
 
     fig, summaries = plot_delta_bsys(
-        chain, truths, nsigma=args.nsigma, units=args.units,
+        chain, truths, components=components, nsigma=args.nsigma,
+        units=args.units, annotate=args.annotate,
         title='Demo: synthetic chain',
     )
     print(summary_text(summaries))
