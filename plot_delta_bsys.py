@@ -898,8 +898,8 @@ def plot_delta_bsys(
     ax: Optional[plt.Axes] = None,
     figsize: Optional[Tuple[float, float]] = None,
     row_height: float = 1.15,
-    label_fontsize: float = 30.,
-    tick_fontsize: float = 24.,
+    label_fontsize: float = 50.,
+    tick_fontsize: float = 48.,
     annotation_fontsize: float = 20.,
     legend_fontsize: float = 22.,
     marker_size: float = 13.,
@@ -1038,7 +1038,7 @@ def plot_delta_bsys(
 
     if xlabel is None:
         xlabel = (r'$\Delta b_{\mathrm{sys}} = b_{\mathrm{sys}} - '
-                  r'b^{\mathrm{true}}_{\mathrm{sys}}$')
+                  r'b_{\mathrm{sys}, \mathrm{true}}$')
         if units == 'sigma':
             xlabel += r' $[\sigma]$'
         else:
