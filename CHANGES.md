@@ -2,6 +2,64 @@
 
 ---
 
+## 2026-09-09 — DPS accuracy and precision metrics: `dps_metrics.py`
+
+**New: `dps_metrics.py`.** The combined-systematics section of the paper says
+the DPS recovery "suffers" relative to Case III without saying by how much, or
+whether what degrades is the *accuracy* of the recovery or its *precision*.
+Those are different claims and the module measures them separately, over the
+delay bins left after the foreground cut.
+
+- **Precision** — the width of the credible interval drawn as the Figure 7
+  error bar, and between two runs the median per-bin ratio of those widths:
+  the factor by which the error bars grow.
+- **Accuracy** — `z = (mean - true) / std`, reported as median `|z|`, the
+  bins beyond 2σ and 3σ, and `mean(z**2)`.  Also the unnormalised
+  `median |mean - true| / true`, comparable to the fractional error the
+  notebooks already print.
+- **`verdict()`** applies the rule that decides the wording: widths growing
+  while median `|z|` holds is a loss of precision alone — *mildly degraded*;
+  median `|z|` growing by more than 25 % as well means the uncertainties are
+  not absorbing the residuals — *significantly degraded*.
+  `paper_sentence()` fills the measured numbers into the replacement sentence
+  and switches its closing clause on that verdict.
+
+Conventions are lifted from the notebooks so the numbers agree with the
+published figures: the point estimate is the Figure 7 cell's
+`np.average(ps_sample, weights=ln_post)`, σ is the `np.std(ps_sample, axis=0)`
+of the `errors_components.pdf` cell, the interval is the central 95 %, and the
+bins dropped are that cell's `rm = np.arange(27, 34)` (|τ| ≲ 350 ns at
+`Nfreqs = 60`).
+
+Two things surfaced while matching those conventions, both left as they are
+found but no longer silent.  The published estimator weights by the *log*
+posterior, so its weights are negative wherever `ln_post` is; the result is
+then not a posterior mean and need not lie inside the range of the samples.
+`point_estimate` reproduces it as the default, warns when the weights are not
+all positive, and offers `estimator='mean'` / `'median'`.  And `z` is signed
+recovered-minus-true here, matching `plot_delta_bsys.py`, which makes it the
+negative of the `(True − μ)/σ` panel of `errors_components.pdf`; only `|z|`
+reaches the summaries.
+
+`load_run` reads `dps-eor.npy`, `ln-post.npy` and `eor_true.npy` from a run
+directory and applies the notebook's trimming and burn-in, so the two runs
+compared may live under different `result_dir`s — as they do here, the
+individual cases under `250k_run/` and the combined case under `sim_data/`.
+Output is a text table plus the filled-in sentence, and `--json` for the whole
+comparison.  No notebook or figure was touched.
+
+**Tests** — `tests/test_dps_metrics.py`, 72 tests on synthetic chains: the
+delay power spectrum against the notebook helper term for term, both mask
+builders and their guards, the three estimators and the negative-weight
+warning, the credible interval against the notebook percentiles, the sign and
+scaling of `z`, recovery of a known 3σ bias, both branches of the verdict and
+its tolerance, the width ratio against a chain built at twice the width, the
+table and sentence, JSON serialisation, `load_run`'s burn-in, trimming and
+missing-file errors, and the command line including a two-directory run.
+Full suite: 223 passed.
+
+---
+
 ## 2026-09-07 — `Δ b_sys` plot: no text on the figure, real and imaginary parts drawn separately
 
 **`plot_delta_bsys.py`**

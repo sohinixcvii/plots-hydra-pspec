@@ -19,11 +19,13 @@ estimation using the Gibbs-sampling framework implemented in
 ├── plot_corner_blink.py             # Blink-comparison corner plots, 100k vs 250k
 ├── plot_delta_bsys.py               # delta b_sys interval plot (corner-plot replacement)
 ├── corner_padding.py                # Padding fix for the Figure 6 corner grid
+├── dps_metrics.py                   # DPS accuracy/precision metrics, run vs run
 ├── plotting_functions.py            # Waterfall-plot helpers used by the notebooks
 ├── tests/                           # pytest suite
 │   ├── test_plot_corner_blink.py
 │   ├── test_plot_delta_bsys.py
-│   └── test_corner_padding.py
+│   ├── test_corner_padding.py
+│   └── test_dps_metrics.py
 └── plotting_codes/                  # Shared utility library
     ├── functions.py                 # Fourier transforms, covariance helpers
     └── tables.py                    # Table renderer + ESS/tau helpers
@@ -693,6 +695,123 @@ conda run -n py10 python corner_padding.py --save corner_tight.pdf --ncases 3
 as colorbars), which panels keep numbers, the tick formatting and rotation, the
 pinned labels and resized titles, the margins, and that the data in every panel
 is left exactly as it was.
+
+---
+
+## DPS accuracy and precision: `dps_metrics.py`
+
+Quantifies how much worse a recovered EoR delay power spectrum is than a
+reference run's, and — the point of the module — says whether the loss is one
+of **accuracy** or of **precision**.  Written for the combined-systematics
+section of the paper, where the text said the DPS recovery "suffers" without
+saying by how much or in what sense.
+
+Over the delay bins that survive the foreground cut it reports, per run:
+
+| Metric | Meaning |
+|---|---|
+| `median_width` | Median width of the credible interval drawn as the Figure 7 error bar |
+| `median_std` | Median posterior standard deviation |
+| `median_abs_z` | Median \|z\|, where `z = (mean - true) / std` |
+| `n_beyond` | Bins with \|z\| beyond 2σ and 3σ |
+| `reduced_chi2` | `mean(z**2)` |
+| `median_frac_dev` | Median \|mean − true\| / true |
+
+and, between two runs, the median per-bin ratio of the credible-interval
+widths — the factor by which the error bars grow.
+
+### The verdict
+
+`verdict()` turns the numbers into the word the paper needs:
+
+* widths grow but median \|z\| does not → **mildly degraded**.  The wider
+  intervals absorb the larger residuals; the run is less *constraining*, not
+  more *biased*.
+* median \|z\| grows by more than `ACCURACY_TOLERANCE` (25 %) as well →
+  **significantly degraded**.  The uncertainties are not keeping up with the
+  residuals.
+
+`paper_sentence()` substitutes the measured values into the replacement
+sentence and switches its closing clause on that verdict, so the output is
+ready to paste into the manuscript.
+
+### Conventions
+
+Taken from the notebooks, so the numbers agree with the published figures:
+
+| Quantity | Source |
+|---|---|
+| Point estimate | `np.average(ps_sample, weights=ln_post)`, the Figure 7 cell |
+| σ | `np.std(ps_sample, axis=0)`, the `errors_components.pdf` cell |
+| Credible interval | Central `conf_interval` %, 95 by default |
+| Excluded bins | Indices 27–33 — the `rm = np.arange(27, 34)` of that same cell, \|τ\| ≲ 350 ns at `Nfreqs = 60` |
+
+Two cautions on the default estimator.  It weights by the *log* posterior, so
+the weights are negative wherever the log posterior is; the result is then not
+a posterior mean and need not lie within the range of the samples.  The module
+reproduces it because the figure does, warns when the weights are not all
+positive, and offers `estimator='mean'` and `'median'` as the unweighted
+alternatives.  Second, `z` is signed *recovered minus true*, matching
+`plot_delta_bsys.py` and so the negative of the `(True − μ)/σ` panel of
+`errors_components.pdf`; only \|z\| reaches the summaries, so the sign matters
+only if the per-bin array is used directly.
+
+### Usage
+
+```bash
+# Case III as the control, the combined case as the run under test
+conda run -n py10 python dps_metrics.py \
+    --reference 'Case III=/nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/250k_run/low_dl_fr_20' \
+    --target 'Combined=/nvme2/scratch/sohini/hydra-pspec-systematic/paper_plots/sim_data/caseiv' \
+    --niter 250000
+
+# The unweighted posterior mean instead of the figure's weighted one
+conda run -n py10 python dps_metrics.py --reference ... --target ... --estimator mean
+
+# A different foreground cut, and the metrics saved as JSON
+conda run -n py10 python dps_metrics.py --reference ... --target ... \
+    --exclude 25:36 --json dps_metrics.json
+
+# Check the machinery on synthetic chains, no run outputs needed
+conda run -n py10 python dps_metrics.py --selftest
+```
+
+The two run directories may sit under different `result_dir`s, which they do
+in this project: the three individual cases are under `250k_run/` and the
+combined case under `sim_data/`.
+
+### Use from a notebook
+
+```python
+import dps_metrics as dm
+
+comp = dm.compare_runs(
+    reference=dm.load_run(result_dir_250k + 'low_dl_fr_20', 'Case III', niter=250000),
+    target=dm.load_run(result_dir_sim + 'caseiv', 'Combined', niter=250000),
+)
+print(dm.summary_text(comp))
+print(dm.paper_sentence(comp))
+```
+
+`compare_runs` also takes a `mask`, so a cut expressed in nanoseconds can be
+built with `mask_from_delays(delays.value, tau_min=350)` instead of the default
+index range.
+
+### Outputs
+
+A plain-text table to stdout, the filled-in paper sentence, and optionally the
+whole `Comparison` as JSON (`--json`).  No figures.
+
+### Tests
+
+`tests/test_dps_metrics.py` — 72 tests on synthetic chains: the delay power
+spectrum against the notebook helper term for term, both mask builders and
+their guards, the three estimators and the negative-weight warning, the
+credible interval against the notebook percentiles, the sign and scaling of
+`z`, recovery of a known 3σ bias, both branches of the verdict and its
+tolerance, the width ratio against a chain built at twice the width, the table
+and sentence, JSON serialisation, `load_run`'s burn-in and trimming and its
+missing-file errors, and the command line including a two-directory run.
 
 ---
 
