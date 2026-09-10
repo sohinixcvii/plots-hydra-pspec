@@ -116,10 +116,23 @@ ACCURACY_TOLERANCE: float = 0.25
 # called unchanged too, and nothing has measurably degraded.
 WIDTH_TOLERANCE: float = 0.10
 
+# Foreground modes used from fgmodes.npy, as in the notebook Configuration.
+NFGMODES_DEFAULT: int = 10
+
+# Every `stride`-th sample is used when averaging the sky over a chain.  The
+# posterior predictive mean converges long before the chain is exhausted, and
+# gcr-eor.npy runs to tens of GB at full length.
+SKY_STRIDE_DEFAULT: int = 50
+
 # File names written by a hydra-pspec run.
 CHAIN_FILE = 'dps-eor.npy'
 LNPOST_FILE = 'ln-post.npy'
 EOR_TRUE_FILE = 'eor_true.npy'
+BSYS_FILE = 'b-sys.npy'
+EOR_GCR_FILE = 'gcr-eor.npy'
+FG_AMPS_FILE = 'fg-amps.npy'
+FG_MODES_FILE = 'fgmodes.npy'
+FG_TRUE_FILE = 'fg_true.npy'
 
 
 # ── Records ────────────────────────────────────────────────────────────────
@@ -658,6 +671,55 @@ def compare_runs(
 
 # ── Reporting ──────────────────────────────────────────────────────────────
 
+def _render_table(
+    headers: Sequence[str],
+    rows: Sequence[Sequence[str]],
+    footer: Optional[str] = None,
+) -> str:
+    """Render rows of pre-formatted strings as a fixed-width table.
+
+    Columns are sized to their widest cell, rules are drawn above and below
+    the body, and every cell is left-aligned, which keeps labels and numbers
+    scannable side by side in a terminal.
+
+    Parameters
+    ----------
+    headers : sequence of str
+        Column headings; sets the column count.
+    rows : sequence of sequence of str
+        Body cells, already formatted.  Every row must match `headers` in
+        length.
+    footer : str, optional
+        A line placed below the closing rule, e.g. a verdict.
+
+    Returns
+    -------
+    str
+        The rendered table, without a trailing newline.
+    """
+    ncols = len(headers)
+    for r in rows:
+        if len(r) != ncols:
+            raise ValueError(
+                f'row has {len(r)} cells, headers have {ncols}: {list(r)}'
+            )
+
+    widths = [
+        max(len(str(headers[i])), max((len(str(r[i])) for r in rows), default=0))
+        for i in range(ncols)
+    ]
+    rule = '  '.join('-' * w for w in widths)
+
+    out = ['  '.join(str(headers[i]).ljust(widths[i]) for i in range(ncols)),
+           rule]
+    out += ['  '.join(str(r[i]).ljust(widths[i]) for i in range(ncols))
+            for r in rows]
+    out.append(rule)
+    if footer:
+        out.append(footer)
+    return '\n'.join(out)
+
+
 def summary_text(comp: Comparison) -> str:
     """Render a comparison as a plain-text table.
 
@@ -697,16 +759,7 @@ def summary_text(comp: Comparison) -> str:
         ))
 
     headers = ('metric', ref.label, tgt.label, 'ratio')
-    widths = [
-        max(len(headers[i]), max(len(r[i]) for r in rows))
-        for i in range(4)
-    ]
-    line = '  '.join('-' * w for w in widths)
-
-    out = ['  '.join(h.ljust(widths[i]) for i, h in enumerate(headers)), line]
-    out += ['  '.join(r[i].ljust(widths[i]) for i in range(4)) for r in rows]
-    out += [line, f'verdict: {comp.verdict}']
-    return '\n'.join(out)
+    return _render_table(headers, rows, footer=f'verdict: {comp.verdict}')
 
 
 def paper_sentence(comp: Comparison) -> str:
@@ -856,6 +909,363 @@ def load_run(
     )
 
 
+# ── b_sys posterior spread ─────────────────────────────────────────────────
+
+@dataclass
+class BsysSpread:
+    """Marginal posterior spread of one complex systematics amplitude.
+
+    Attributes
+    ----------
+    label : str
+        Parameter label, e.g. ``'b_sys,1'``.
+    std_real, std_imag : float
+        Posterior standard deviation of the real and imaginary parts.
+    std_total : float
+        ``sqrt(std_real**2 + std_imag**2)``, the spread of the complex
+        amplitude as a whole.
+    """
+
+    label: str
+    std_real: float
+    std_imag: float
+    std_total: float
+
+
+def load_bsys(
+    run_dir: str,
+    niter: Optional[int] = None,
+    nburn_pc: float = NBURN_PC_DEFAULT,
+) -> np.ndarray:
+    """Load a run's systematics-amplitude chain, burn-in removed.
+
+    Parameters
+    ----------
+    run_dir : str
+        Directory holding the run outputs.
+    niter : int, optional
+        Number of samples to use.  Defaults to the whole chain.
+    nburn_pc : float, optional
+        Burn-in as a percentage of `niter`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex chain of shape ``(nsamples, nparams)``.
+    """
+    path = Path(run_dir)
+    if not (path / BSYS_FILE).is_file():
+        raise FileNotFoundError(f'{path} has no {BSYS_FILE}')
+
+    chain = np.load(path / BSYS_FILE)
+    n_avail = chain.shape[0]
+    n_use = n_avail if niter is None else int(niter)
+    if n_use > n_avail:
+        raise ValueError(
+            f'{path.name}: asked for {n_use} samples, only {n_avail} on disk'
+        )
+    if not 0 <= nburn_pc < 100:
+        raise ValueError(f'nburn_pc must be in [0, 100), got {nburn_pc}')
+    return chain[int(n_use * nburn_pc / 100):n_use]
+
+
+def bsys_spread(
+    chain: np.ndarray,
+    labels: Optional[Sequence[str]] = None,
+) -> List[BsysSpread]:
+    """Marginal posterior spread of every parameter in a b_sys chain.
+
+    Parameters
+    ----------
+    chain : numpy.ndarray
+        Complex chain of shape ``(nsamples, nparams)``.
+    labels : sequence of str, optional
+        Parameter labels.  Default ``'b_sys,1'`` upward.
+
+    Returns
+    -------
+    list of BsysSpread
+        One record per parameter, in chain order.
+    """
+    if chain.ndim != 2:
+        raise ValueError(
+            f'chain must be 2-D (nsamples, nparams), got shape {chain.shape}'
+        )
+    nparams = chain.shape[1]
+    names = list(labels) if labels is not None else [
+        f'b_sys,{i + 1}' for i in range(nparams)
+    ]
+    if len(names) != nparams:
+        raise ValueError(f'{len(names)} labels for {nparams} parameters')
+
+    out = []
+    for i, name in enumerate(names):
+        sr = float(np.std(chain[:, i].real))
+        si = float(np.std(chain[:, i].imag))
+        out.append(BsysSpread(name, sr, si, float(np.hypot(sr, si))))
+    return out
+
+
+def compare_bsys_spread(
+    reference: np.ndarray,
+    target: np.ndarray,
+    reference_label: str = 'reference',
+    target_label: str = 'target',
+    indices: Optional[Sequence[Tuple[int, int]]] = None,
+) -> str:
+    """Table of posterior spread in two runs, and the ratio between them.
+
+    The check behind the combined-case correlation-time argument.  That
+    argument holds that a parameter speeds up because it acquires a degenerate
+    partner *inside* the systematics block, which adds posterior variance that
+    is refreshed exactly at every iteration and so dilutes the slow
+    foreground-degenerate component.  The prediction is that the marginal
+    posterior width of the affected parameters is **larger** in the combined
+    run than in isolation.  A ratio at or below one refutes it.
+
+    Parameters
+    ----------
+    reference, target : numpy.ndarray
+        Complex b_sys chains, burn-in already removed.
+    reference_label, target_label : str, optional
+        Column headings.
+    indices : sequence of (int, int), optional
+        Parameter pairs to compare, as ``(reference index, target index)``.
+        Defaults to matching by position over the parameters the two runs
+        share, which is the right mapping when the combined run lists the
+        individual case's modes first.
+
+    Returns
+    -------
+    str
+        A plain-text table.
+    """
+    if reference.ndim != 2 or target.ndim != 2:
+        raise ValueError('both chains must be 2-D (nsamples, nparams)')
+
+    if indices is None:
+        n = min(reference.shape[1], target.shape[1])
+        indices = [(i, i) for i in range(n)]
+    for a, b in indices:
+        if not 0 <= a < reference.shape[1]:
+            raise ValueError(f'reference has no parameter {a}')
+        if not 0 <= b < target.shape[1]:
+            raise ValueError(f'target has no parameter {b}')
+
+    ref_all = bsys_spread(reference)
+    tgt_all = bsys_spread(target)
+
+    rows = []
+    for a, b in indices:
+        r, t = ref_all[a], tgt_all[b]
+        ratio = t.std_total / r.std_total if r.std_total > 0 else float('nan')
+        verdict_ = ('wider' if ratio > 1.05 else
+                    'narrower' if ratio < 0.95 else 'unchanged')
+        rows.append((
+            f'{r.label} -> {t.label}',
+            f'{r.std_total:.4g}',
+            f'{t.std_total:.4g}',
+            f'{ratio:.2f}x',
+            verdict_,
+        ))
+
+    headers = ('parameter', reference_label, target_label, 'ratio', '')
+    return _render_table(headers, rows)
+
+
+def bsys_correlation(
+    chain: np.ndarray,
+    i: int,
+    j: int,
+) -> Dict[str, float]:
+    """Pearson correlation between two systematics amplitudes.
+
+    The second half of the combined-case check: the partner that is supposed
+    to absorb the variance should be strongly correlated with the parameter
+    that speeds up.
+
+    Parameters
+    ----------
+    chain : numpy.ndarray
+        Complex b_sys chain of shape ``(nsamples, nparams)``.
+    i, j : int
+        Zero-based parameter indices.
+
+    Returns
+    -------
+    dict
+        ``'real'`` and ``'imag'`` correlation coefficients, and ``'max_abs'``,
+        the larger of the two in absolute value.
+    """
+    for k in (i, j):
+        if not 0 <= k < chain.shape[1]:
+            raise ValueError(f'chain has no parameter {k}')
+    if i == j:
+        raise ValueError('i and j must name different parameters')
+
+    out = {}
+    for part in ('real', 'imag'):
+        a = getattr(chain[:, i], part)
+        b = getattr(chain[:, j], part)
+        if a.std() == 0 or b.std() == 0:
+            out[part] = float('nan')
+        else:
+            out[part] = float(np.corrcoef(a, b)[0, 1])
+    out['max_abs'] = float(max(abs(out['real']), abs(out['imag'])))
+    return out
+
+
+# ── Sky residuals ──────────────────────────────────────────────────────────
+
+@dataclass
+class SkyResidual:
+    """RMS of the sky residual for one run.
+
+    Attributes
+    ----------
+    label : str
+        Name of the run.
+    rms_residual : float
+        RMS of ``sky_true - mean(sky samples)`` over all times and channels.
+    rms_sky : float
+        RMS of the true sky, for scale.
+    rms_eor : float
+        RMS of the true EoR component alone.
+    fractional : float
+        ``rms_residual / rms_sky``.
+    relative_to_eor : float
+        ``rms_residual / rms_eor`` -- the residual measured against the signal
+        the analysis is actually after.
+    nsamples : int
+        Chain samples averaged over.
+    """
+
+    label: str
+    rms_residual: float
+    rms_sky: float
+    rms_eor: float
+    fractional: float
+    relative_to_eor: float
+    nsamples: int
+
+
+def sky_residual_rms(
+    run_dir: str,
+    label: Optional[str] = None,
+    niter: Optional[int] = None,
+    nburn_pc: float = NBURN_PC_DEFAULT,
+    stride: int = SKY_STRIDE_DEFAULT,
+    ntimes: int = NTIMES_DEFAULT,
+    nfreqs: int = NFREQS_DEFAULT,
+    nfgmodes: int = NFGMODES_DEFAULT,
+) -> SkyResidual:
+    """RMS residual between the true sky and its posterior predictive mean.
+
+    The sky of each Gibbs sample is ``eor_gcr[i] + (fgmodes @ fg_amps[i].T).T``,
+    the sum the notebook forms for Figures 4 and 9.  The chain is memory-mapped
+    and averaged in place, so nothing of order ``(niter, ntimes, nfreqs)`` is
+    ever allocated.
+
+    Parameters
+    ----------
+    run_dir : str
+        Directory holding the run outputs.
+    label : str, optional
+        Name for the run.  Defaults to the directory's basename.
+    niter : int, optional
+        Number of samples to draw from.  Defaults to the whole chain.
+    nburn_pc : float, optional
+        Burn-in as a percentage of `niter`.
+    stride : int, optional
+        Use every `stride`-th sample after burn-in.
+    ntimes, nfreqs : int, optional
+        Dimensions the true arrays are trimmed to.
+    nfgmodes : int, optional
+        Foreground modes used from ``fgmodes.npy``.
+
+    Returns
+    -------
+    SkyResidual
+        The RMS residual and the scales it should be read against.
+    """
+    path = Path(run_dir)
+    if not path.is_dir():
+        raise FileNotFoundError(f'no such run directory: {path}')
+    for name in (EOR_GCR_FILE, FG_AMPS_FILE, FG_MODES_FILE,
+                 EOR_TRUE_FILE, FG_TRUE_FILE):
+        if not (path / name).is_file():
+            raise FileNotFoundError(f'{path} has no {name}')
+    if stride < 1:
+        raise ValueError(f'stride must be >= 1, got {stride}')
+    if not 0 <= nburn_pc < 100:
+        raise ValueError(f'nburn_pc must be in [0, 100), got {nburn_pc}')
+
+    eor_gcr = np.load(path / EOR_GCR_FILE, mmap_mode='r')
+    fg_amps = np.load(path / FG_AMPS_FILE, mmap_mode='r')
+    fgmodes = np.load(path / FG_MODES_FILE)[:, :nfgmodes]
+    eor_true = np.load(path / EOR_TRUE_FILE)[:ntimes, :nfreqs]
+    fg_true = np.load(path / FG_TRUE_FILE)[:ntimes, :nfreqs]
+
+    n_avail = eor_gcr.shape[0]
+    n_use = n_avail if niter is None else int(niter)
+    if n_use > n_avail:
+        raise ValueError(
+            f'{path.name}: asked for {n_use} samples, only {n_avail} on disk'
+        )
+    nburn = int(n_use * nburn_pc / 100)
+
+    total = np.zeros((ntimes, nfreqs), dtype=complex)
+    count = 0
+    for i in range(nburn, n_use, stride):
+        fg_vis = (fgmodes @ fg_amps[i][:, :nfgmodes].T).T
+        total += eor_gcr[i][:ntimes, :nfreqs] + fg_vis[:ntimes, :nfreqs]
+        count += 1
+    if count == 0:
+        raise ValueError('burn-in and stride leave no samples to average')
+
+    sky_true = eor_true + fg_true
+    residual = sky_true - total / count
+
+    rms = lambda x: float(np.sqrt(np.mean(np.abs(x) ** 2)))
+    rms_residual, rms_sky, rms_eor = rms(residual), rms(sky_true), rms(eor_true)
+
+    return SkyResidual(
+        label=label or path.name,
+        rms_residual=rms_residual,
+        rms_sky=rms_sky,
+        rms_eor=rms_eor,
+        fractional=rms_residual / rms_sky if rms_sky > 0 else float('nan'),
+        relative_to_eor=rms_residual / rms_eor if rms_eor > 0 else float('nan'),
+        nsamples=count,
+    )
+
+
+def sky_residual_table(residuals: Sequence[SkyResidual]) -> str:
+    """Render sky-residual records as a plain-text table.
+
+    Parameters
+    ----------
+    residuals : sequence of SkyResidual
+        One record per run, in the order they should appear.
+
+    Returns
+    -------
+    str
+        A plain-text table, one row per run.
+    """
+    if not residuals:
+        return 'no runs'
+    headers = ('case', 'RMS residual', 'RMS sky', 'RMS EoR',
+               'resid/sky', 'resid/EoR', 'samples')
+    rows = [
+        (r.label, f'{r.rms_residual:.4g}', f'{r.rms_sky:.4g}',
+         f'{r.rms_eor:.4g}', f'{r.fractional:.3g}',
+         f'{r.relative_to_eor:.3g}', f'{r.nsamples:d}')
+        for r in residuals
+    ]
+    return _render_table(headers, rows)
+
+
 # ── Smoke test ─────────────────────────────────────────────────────────────
 
 def make_demo_run(
@@ -1002,6 +1412,38 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        '--task', choices=('dps', 'bsys', 'sky'), default='dps',
+        help=(
+            "which comparison to run: 'dps' (default) the delay power "
+            "spectrum of --target against --reference; 'bsys' the posterior "
+            "spread of the systematics amplitudes in the same two runs, with "
+            "the partner correlation from --pair; 'sky' the RMS sky residual "
+            'of every run given by --runs'
+        ),
+    )
+    p.add_argument(
+        '--runs', metavar='[LABEL=]DIR', nargs='+', default=None,
+        help="run directories for --task sky, in the order to table them",
+    )
+    p.add_argument(
+        '--pair', metavar='I,J', default=None,
+        help=(
+            'for --task bsys, the 1-based parameter pair whose correlation '
+            'is reported in the target run, e.g. 1,9'
+        ),
+    )
+    p.add_argument(
+        '--stride', type=int, default=SKY_STRIDE_DEFAULT,
+        help=(
+            'for --task sky, use every STRIDE-th sample when averaging '
+            f'(default: {SKY_STRIDE_DEFAULT})'
+        ),
+    )
+    p.add_argument(
+        '--nfgmodes', type=int, default=NFGMODES_DEFAULT,
+        help=f'foreground modes used (default: {NFGMODES_DEFAULT})',
+    )
+    p.add_argument(
         '--reference', metavar='[LABEL=]DIR',
         help='control run, e.g. the Case III output directory',
     )
@@ -1055,6 +1497,111 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _parse_pair(spec: str) -> Tuple[int, int]:
+    """Parse a 1-based ``I,J`` parameter pair into 0-based indices.
+
+    Parameters
+    ----------
+    spec : str
+        Pair as given on the command line, e.g. ``'1,9'``.
+
+    Returns
+    -------
+    tuple of int
+        Zero-based ``(i, j)``.
+    """
+    parts = spec.split(',')
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError(f'--pair wants I,J, got {spec!r}')
+    try:
+        i, j = int(parts[0]), int(parts[1])
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f'--pair wants integers, got {spec!r}'
+        ) from exc
+    if i < 1 or j < 1:
+        raise argparse.ArgumentTypeError('--pair indices are 1-based')
+    return i - 1, j - 1
+
+
+def _run_bsys(args: argparse.Namespace) -> int:
+    """Handle ``--task bsys``: posterior spread, and the partner correlation.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command line.
+
+    Returns
+    -------
+    int
+        Process exit status.
+    """
+    if not (args.reference and args.target):
+        print('--task bsys needs --reference and --target')
+        return 2
+
+    ref_label, ref_dir = _parse_run_spec(args.reference)
+    tgt_label, tgt_dir = _parse_run_spec(args.target)
+    reference = load_bsys(ref_dir, args.niter, args.burn_pc)
+    target = load_bsys(tgt_dir, args.niter, args.burn_pc)
+
+    print('Marginal posterior spread of the systematics amplitudes')
+    print('(the combined-case argument predicts a ratio above one)\n')
+    print(compare_bsys_spread(
+        reference, target,
+        ref_label or Path(ref_dir).name,
+        tgt_label or Path(tgt_dir).name,
+    ))
+
+    if args.pair:
+        i, j = _parse_pair(args.pair)
+        r = bsys_correlation(target, i, j)
+        print(
+            f'\nPartner correlation in {tgt_label or Path(tgt_dir).name}, '
+            f'b_sys,{i + 1} vs b_sys,{j + 1}:'
+        )
+        print(f'  real {r["real"]:+.3f}   imag {r["imag"]:+.3f}   '
+              f'max |r| {r["max_abs"]:.3f}')
+    return 0
+
+
+def _run_sky(args: argparse.Namespace) -> int:
+    """Handle ``--task sky``: RMS sky residual for every run given.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command line.
+
+    Returns
+    -------
+    int
+        Process exit status.
+    """
+    if not args.runs:
+        print('--task sky needs --runs')
+        return 2
+
+    residuals = []
+    for spec in args.runs:
+        label, run_dir = _parse_run_spec(spec)
+        residuals.append(sky_residual_rms(
+            run_dir, label, args.niter, args.burn_pc, args.stride,
+            args.ntimes, args.nfreqs, args.nfgmodes,
+        ))
+
+    print('RMS residual between the true sky and its posterior predictive mean\n')
+    print(sky_residual_table(residuals))
+
+    if args.json:
+        Path(args.json).write_text(
+            json.dumps([asdict(r) for r in residuals], indent=2)
+        )
+        print(f'\nMetrics written to {args.json}')
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Entry point.
 
@@ -1069,6 +1616,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         Process exit status.
     """
     args = build_parser().parse_args(argv)
+
+    if args.task == 'sky':
+        return _run_sky(args)
+    if args.task == 'bsys':
+        return _run_bsys(args)
 
     if args.selftest or not (args.reference and args.target):
         if not args.selftest:

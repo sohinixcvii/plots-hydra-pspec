@@ -590,3 +590,310 @@ def test_main_runs_on_real_directories(run_dir, tmp_path, capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert 'Case III' in out and 'Combined' in out
+
+
+# ── _render_table ──────────────────────────────────────────────────────────
+
+def test_render_table_aligns_columns():
+    out = dm._render_table(('a', 'bbbb'), [('cc', 'd'), ('e', 'ffff')])
+    lines = out.splitlines()
+    assert len(set(len(l) for l in lines)) == 1
+
+
+def test_render_table_adds_a_footer():
+    out = dm._render_table(('a',), [('b',)], footer='verdict: fine')
+    assert out.splitlines()[-1] == 'verdict: fine'
+
+
+def test_render_table_rejects_a_short_row():
+    with pytest.raises(ValueError, match='cells'):
+        dm._render_table(('a', 'b'), [('only',)])
+
+
+def test_render_table_handles_no_rows():
+    assert 'header' in dm._render_table(('header',), [])
+
+
+# ── b_sys spread ───────────────────────────────────────────────────────────
+
+@pytest.fixture
+def bsys_plain():
+    """Four independent complex amplitudes."""
+    rng = np.random.default_rng(3)
+    return rng.normal(size=(2000, 4)) + 1j * rng.normal(size=(2000, 4))
+
+
+@pytest.fixture
+def bsys_partnered(bsys_plain):
+    """Twelve amplitudes; the first is degenerate with the last."""
+    rng = np.random.default_rng(4)
+    chain = np.concatenate(
+        [bsys_plain, rng.normal(size=(2000, 8))
+         + 1j * rng.normal(size=(2000, 8))], axis=1)
+    shared = rng.normal(size=2000) * 3.0 + 1j * rng.normal(size=2000) * 3.0
+    chain[:, 0] += shared
+    chain[:, 11] -= shared
+    return chain
+
+
+def test_bsys_spread_one_record_per_parameter(bsys_plain):
+    out = dm.bsys_spread(bsys_plain)
+    assert len(out) == 4
+    assert [s.label for s in out] == [f'b_sys,{i}' for i in range(1, 5)]
+
+
+def test_bsys_spread_total_combines_the_parts(bsys_plain):
+    s = dm.bsys_spread(bsys_plain)[0]
+    assert s.std_total == pytest.approx(np.hypot(s.std_real, s.std_imag))
+
+
+def test_bsys_spread_accepts_labels(bsys_plain):
+    out = dm.bsys_spread(bsys_plain, labels=list('wxyz'))
+    assert [s.label for s in out] == list('wxyz')
+
+
+def test_bsys_spread_rejects_wrong_label_count(bsys_plain):
+    with pytest.raises(ValueError, match='labels for'):
+        dm.bsys_spread(bsys_plain, labels=['only'])
+
+
+def test_bsys_spread_rejects_1d(bsys_plain):
+    with pytest.raises(ValueError, match='2-D'):
+        dm.bsys_spread(bsys_plain[:, 0])
+
+
+def test_compare_bsys_spread_detects_the_inflated_parameter(
+        bsys_plain, bsys_partnered):
+    """The signature the combined-case argument predicts."""
+    table = dm.compare_bsys_spread(bsys_plain, bsys_partnered)
+    rows = [l for l in table.splitlines() if l.startswith('b_sys,')]
+    assert 'wider' in rows[0]
+    assert all('unchanged' in r for r in rows[1:])
+
+
+def test_compare_bsys_spread_flat_against_itself(bsys_plain):
+    table = dm.compare_bsys_spread(bsys_plain, bsys_plain)
+    assert 'wider' not in table
+    assert table.count('unchanged') == 4
+
+
+def test_compare_bsys_spread_matches_by_position(bsys_plain, bsys_partnered):
+    """Only the parameters the two runs share are compared."""
+    table = dm.compare_bsys_spread(bsys_plain, bsys_partnered)
+    assert len([l for l in table.splitlines() if l.startswith('b_sys,')]) == 4
+
+
+def test_compare_bsys_spread_honours_explicit_indices(
+        bsys_plain, bsys_partnered):
+    table = dm.compare_bsys_spread(
+        bsys_plain, bsys_partnered, indices=[(0, 11)])
+    rows = [l for l in table.splitlines() if l.startswith('b_sys,')]
+    assert len(rows) == 1
+    assert 'b_sys,1 -> b_sys,12' in rows[0]
+
+
+def test_compare_bsys_spread_rejects_a_bad_index(bsys_plain, bsys_partnered):
+    with pytest.raises(ValueError, match='no parameter'):
+        dm.compare_bsys_spread(bsys_plain, bsys_partnered, indices=[(9, 0)])
+
+
+def test_bsys_correlation_finds_the_partner(bsys_partnered):
+    r = dm.bsys_correlation(bsys_partnered, 0, 11)
+    assert r['max_abs'] > 0.8
+    assert r['real'] < 0            # built anti-correlated
+
+
+def test_bsys_correlation_near_zero_for_independent(bsys_partnered):
+    r = dm.bsys_correlation(bsys_partnered, 1, 2)
+    assert r['max_abs'] < 0.2
+
+
+def test_bsys_correlation_rejects_self_pair(bsys_partnered):
+    with pytest.raises(ValueError, match='different parameters'):
+        dm.bsys_correlation(bsys_partnered, 3, 3)
+
+
+def test_bsys_correlation_rejects_bad_index(bsys_partnered):
+    with pytest.raises(ValueError, match='no parameter'):
+        dm.bsys_correlation(bsys_partnered, 0, 99)
+
+
+# ── Sky residuals ──────────────────────────────────────────────────────────
+
+def _make_sky_run(root, name, resid_scale, nsamples=60, nt=8, nf=12, nfg=4):
+    """A run directory carrying the arrays `sky_residual_rms` reads."""
+    rng = np.random.default_rng(abs(hash(name)) % 2**32)
+    d = root / name
+    d.mkdir(parents=True, exist_ok=True)
+    eor_true = (rng.normal(size=(nt, nf)) + 1j * rng.normal(size=(nt, nf))) * 0.1
+    fgmodes = rng.normal(size=(nf, nfg))
+    fg_amps_true = rng.normal(size=(nt, nfg))
+    fg_true = (fgmodes @ fg_amps_true.T).T
+    np.save(d / dm.EOR_TRUE_FILE, eor_true)
+    np.save(d / dm.FG_TRUE_FILE, fg_true)
+    np.save(d / dm.FG_MODES_FILE, fgmodes)
+    np.save(d / dm.EOR_GCR_FILE, eor_true[None] + resid_scale * 0.02 * (
+        rng.normal(size=(nsamples, nt, nf))
+        + 1j * rng.normal(size=(nsamples, nt, nf))))
+    np.save(d / dm.FG_AMPS_FILE,
+            fg_amps_true[None] + resid_scale * 0.01
+            * rng.normal(size=(nsamples, nt, nfg)))
+    return d
+
+
+@pytest.fixture
+def sky_runs(tmp_path):
+    """Three runs whose residuals grow with a known scale factor."""
+    return {
+        name: _make_sky_run(tmp_path / 'sky', name, scale)
+        for name, scale in (('quiet', 1.0), ('mid', 2.0), ('loud', 4.0))
+    }
+
+
+def _kw():
+    return dict(ntimes=8, nfreqs=12, nfgmodes=4, stride=1, nburn_pc=0.0)
+
+
+def test_sky_residual_rms_returns_positive_scales(sky_runs):
+    r = dm.sky_residual_rms(str(sky_runs['quiet']), **_kw())
+    assert r.rms_residual > 0 and r.rms_sky > 0 and r.rms_eor > 0
+
+
+def test_sky_residual_rms_grows_with_the_scatter(sky_runs):
+    """A noisier chain leaves a larger residual after averaging."""
+    vals = [dm.sky_residual_rms(str(sky_runs[n]), **_kw()).rms_residual
+            for n in ('quiet', 'mid', 'loud')]
+    assert vals[0] < vals[1] < vals[2]
+
+
+def test_sky_residual_ratios_are_consistent(sky_runs):
+    r = dm.sky_residual_rms(str(sky_runs['mid']), **_kw())
+    assert r.fractional == pytest.approx(r.rms_residual / r.rms_sky)
+    assert r.relative_to_eor == pytest.approx(r.rms_residual / r.rms_eor)
+
+
+def test_sky_residual_labels_from_directory(sky_runs):
+    assert dm.sky_residual_rms(str(sky_runs['quiet']), **_kw()).label == 'quiet'
+
+
+def test_sky_residual_honours_an_explicit_label(sky_runs):
+    r = dm.sky_residual_rms(str(sky_runs['quiet']), label='Case I', **_kw())
+    assert r.label == 'Case I'
+
+
+def test_sky_residual_stride_reduces_the_sample_count(sky_runs):
+    kw = _kw()
+    kw['stride'] = 4
+    r = dm.sky_residual_rms(str(sky_runs['quiet']), **kw)
+    assert r.nsamples == 15
+
+
+def test_sky_residual_rejects_bad_stride(sky_runs):
+    kw = _kw()
+    kw['stride'] = 0
+    with pytest.raises(ValueError, match='stride'):
+        dm.sky_residual_rms(str(sky_runs['quiet']), **kw)
+
+
+def test_sky_residual_rejects_too_many_samples(sky_runs):
+    kw = _kw()
+    with pytest.raises(ValueError, match='only'):
+        dm.sky_residual_rms(str(sky_runs['quiet']), niter=10**6, **kw)
+
+
+def test_sky_residual_reports_a_missing_file(tmp_path):
+    d = tmp_path / 'bare'
+    d.mkdir()
+    with pytest.raises(FileNotFoundError, match=dm.EOR_GCR_FILE):
+        dm.sky_residual_rms(str(d))
+
+
+def test_sky_residual_reports_a_missing_directory(tmp_path):
+    with pytest.raises(FileNotFoundError, match='no such run directory'):
+        dm.sky_residual_rms(str(tmp_path / 'absent'))
+
+
+def test_sky_residual_table_lists_every_run(sky_runs):
+    rs = [dm.sky_residual_rms(str(sky_runs[n]), label=n, **_kw())
+          for n in ('quiet', 'mid', 'loud')]
+    table = dm.sky_residual_table(rs)
+    for n in ('quiet', 'mid', 'loud'):
+        assert n in table
+    for col in ('RMS residual', 'resid/sky', 'resid/EoR', 'samples'):
+        assert col in table
+
+
+def test_sky_residual_table_handles_no_runs():
+    assert dm.sky_residual_table([]) == 'no runs'
+
+
+# ── Command line: the new tasks ────────────────────────────────────────────
+
+def test_parse_pair_is_one_based():
+    assert dm._parse_pair('1,9') == (0, 8)
+
+
+def test_parse_pair_rejects_junk():
+    import argparse
+    for bad in ('1-9', 'a,b', '1', '0,3'):
+        with pytest.raises(argparse.ArgumentTypeError):
+            dm._parse_pair(bad)
+
+
+def test_main_sky_task_prints_a_table(sky_runs, capsys):
+    code = dm.main([
+        '--task', 'sky',
+        '--runs', f'Case I={sky_runs["quiet"]}', f'Case II={sky_runs["mid"]}',
+        '--ntimes', '8', '--nfreqs', '12', '--nfgmodes', '4',
+        '--stride', '1', '--burn-pc', '0',
+    ])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert 'Case I' in out and 'Case II' in out and 'RMS residual' in out
+
+
+def test_main_sky_task_needs_runs(capsys):
+    assert dm.main(['--task', 'sky']) == 2
+    assert '--runs' in capsys.readouterr().out
+
+
+def test_main_bsys_task_needs_two_runs(capsys):
+    assert dm.main(['--task', 'bsys']) == 2
+    assert '--reference' in capsys.readouterr().out
+
+
+def test_main_bsys_task_reports_spread_and_correlation(tmp_path, capsys):
+    rng = np.random.default_rng(9)
+    ref_d, tgt_d = tmp_path / 'ref', tmp_path / 'tgt'
+    ref_d.mkdir(); tgt_d.mkdir()
+    ref = rng.normal(size=(500, 4)) + 1j * rng.normal(size=(500, 4))
+    tgt = rng.normal(size=(500, 12)) + 1j * rng.normal(size=(500, 12))
+    shared = rng.normal(size=500) * 3.0 + 1j * rng.normal(size=500) * 3.0
+    tgt[:, 0] += shared
+    tgt[:, 11] -= shared
+    np.save(ref_d / dm.BSYS_FILE, ref)
+    np.save(tgt_d / dm.BSYS_FILE, tgt)
+
+    code = dm.main([
+        '--task', 'bsys', '--reference', f'Case I={ref_d}',
+        '--target', f'Combined={tgt_d}', '--burn-pc', '0', '--pair', '1,12',
+    ])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert 'wider' in out
+    assert 'Partner correlation' in out
+
+
+def test_load_bsys_discards_burn_in(tmp_path):
+    d = tmp_path / 'r'
+    d.mkdir()
+    chain = np.arange(200).reshape(100, 2).astype(complex)
+    np.save(d / dm.BSYS_FILE, chain)
+    assert dm.load_bsys(str(d), nburn_pc=10.0).shape[0] == 90
+
+
+def test_load_bsys_reports_a_missing_file(tmp_path):
+    d = tmp_path / 'empty'
+    d.mkdir()
+    with pytest.raises(FileNotFoundError, match=dm.BSYS_FILE):
+        dm.load_bsys(str(d))

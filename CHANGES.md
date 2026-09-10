@@ -2,6 +2,42 @@
 
 ---
 
+## 2026-09-10 — `dps_metrics.py`: b_sys spread, sky residuals, `--task`
+
+Two analyses asked for alongside the DPS comparison, both reported as
+terminal tables.
+
+- **`--task bsys`** — `bsys_spread()`, `compare_bsys_spread()` and
+  `bsys_correlation()`. The check behind the combined-case correlation-time
+  argument: that argument says a parameter speeds up because it gains a
+  degenerate partner inside the systematics block, whose variance is drawn
+  exactly each iteration and so dilutes the slow foreground-degenerate
+  component. It predicts a **wider** marginal posterior for the affected
+  parameter in the combined run, and a strong correlation with the partner.
+  The table labels each row wider / narrower / unchanged, and `--pair I,J`
+  (1-based) adds the partner correlation. A ratio at or below one refutes the
+  argument, in which case the mechanism paragraph in the conclusions has to go.
+- **`--task sky`** — `sky_residual_rms()` and `sky_residual_table()`. RMS of
+  `sky_true - mean(sky samples)` for any number of runs in one table, with the
+  residual also given against the true sky and the true EoR, since a residual
+  that is small beside the foreground-dominated sky can still be a large
+  fraction of the signal being measured. The chain is memory-mapped and
+  averaged in place — nothing of order `(niter, ntimes, nfreqs)` is allocated —
+  and `--stride` (default 50) sets how many samples the mean is taken over.
+- **`_render_table()`** extracted from `summary_text()` and now shared by all
+  three tasks, so the tables line up the same way. `summary_text()` is
+  unchanged in output.
+
+**Tests** — 56 new (133 in the file, 275 in the suite): the renderer and its
+guards, the spread records and their guards, `compare_bsys_spread` detecting an
+inflated parameter against a chain built with a planted degeneracy and staying
+flat against itself, `bsys_correlation` recovering the planted partner and
+reading near zero for independent parameters, the sky residual growing
+monotonically with a known scatter factor, stride and burn-in arithmetic, the
+missing-file errors, and both new command-line tasks end to end.
+
+---
+
 ## 2026-09-10 — `Δ b_sys` plot: larger key and annotation type
 
 Ported from the working copy of the module pasted into cell 32 of

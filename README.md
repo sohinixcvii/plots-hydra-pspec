@@ -777,6 +777,46 @@ alternatives.  Second, `z` is signed *recovered minus true*, matching
 `errors_components.pdf`; only \|z\| reaches the summaries, so the sign matters
 only if the per-bin array is used directly.
 
+### Other tasks
+
+`--task` selects what is compared. All three share `--niter`, `--burn-pc` and
+`--json`.
+
+**`--task bsys`** — marginal posterior spread of the systematics amplitudes in
+two runs, plus the correlation between a named pair. This is the check behind
+the combined-case correlation-time argument in the paper, which holds that a
+parameter speeds up because it gains a degenerate partner *inside* the
+systematics block: variance drawn exactly at every iteration, diluting the slow
+foreground-degenerate component. The prediction is a spread ratio **above one**
+for the affected parameter, and a strong correlation with its partner. A ratio
+at or below one refutes it.
+
+```bash
+conda run -n py10 python dps_metrics.py --task bsys \
+    --reference 'Case I=.../250k_run/low_dl_fr_0' \
+    --target 'Combined=.../250k_run/caseiv' \
+    --niter 250000 --pair 1,9
+```
+
+**`--task sky`** — RMS residual between the true sky and its posterior
+predictive mean, tabled for any number of runs. The sky of each sample is
+`eor_gcr[i] + (fgmodes @ fg_amps[i].T).T`, the sum the notebook forms for
+Figures 4 and 9; the chain is memory-mapped and averaged in place, so nothing
+of order `(niter, ntimes, nfreqs)` is allocated. `--stride` sets how many
+samples the mean is taken over — the posterior predictive mean converges long
+before the chain does, and `gcr-eor.npy` runs to tens of GB at full length.
+
+```bash
+conda run -n py10 python dps_metrics.py --task sky \
+    --runs 'Case I=.../low_dl_fr_0' 'Case II=.../high_dl_fr_0' \
+           'Case III=.../low_dl_fr_20' 'Combined=.../caseiv' \
+    --niter 250000 --stride 50
+```
+
+Each row carries the residual against two scales — the true sky and the true
+EoR — since a residual small next to the foreground-dominated sky may still be
+a large fraction of the signal being measured.
+
 ### Usage
 
 ```bash
@@ -825,7 +865,7 @@ whole `Comparison` as JSON (`--json`).  No figures.
 
 ### Tests
 
-`tests/test_dps_metrics.py` — 77 tests on synthetic chains: the delay power
+`tests/test_dps_metrics.py` — 133 tests on synthetic chains: the delay power
 spectrum against the notebook helper term for term, both mask builders and
 their guards, the three estimators and the negative-weight warning, the
 credible interval against the notebook percentiles, the sign and scaling of
@@ -833,7 +873,10 @@ credible interval against the notebook percentiles, the sign and scaling of
 tolerance, all three verdict branches, the width ratio against a chain built
 at twice the width, the table
 and sentence, JSON serialisation, `load_run`'s burn-in and trimming and its
-missing-file errors, and the command line including a two-directory run.
+missing-file errors, the command line including a two-directory run, the shared table
+renderer, the b_sys spread and partner correlation against a chain built
+with a known degeneracy, and the sky residual against chains whose scatter
+grows by a known factor.
 
 ---
 
