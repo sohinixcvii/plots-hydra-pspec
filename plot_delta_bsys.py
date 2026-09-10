@@ -977,15 +977,16 @@ def plot_delta_bsys(
     ax: Optional[plt.Axes] = None,
     figsize: Optional[Tuple[float, float]] = None,
     row_height: float = 1.15,
-    label_fontsize: float = 50.,
-    tick_fontsize: float = 48.,
-    annotation_fontsize: float = 40.,
-    legend_fontsize: float = 44.,
+    fontsize: float = 44.,
+    label_fontsize: Optional[float] = None,
+    tick_fontsize: Optional[float] = None,
+    annotation_fontsize: Optional[float] = None,
+    legend_fontsize: Optional[float] = None,
     marker_size: float = 13.,
     title: Optional[str] = None,
     xlabel: Optional[str] = None,
     legend_loc: str = 'outside',
-    legend_ncol: int = 3,
+    legend_ncol: int = 2,
 ) -> Tuple[plt.Figure, List[DeltaSummary]]:
     """Draw the ``delta b_sys`` interval plot.
 
@@ -1039,6 +1040,11 @@ def plot_delta_bsys(
         and components.
     row_height : float, optional
         Vertical spacing between parameter rows, in data units.  Default 1.15.
+    fontsize : float, optional
+        One type size for the whole figure -- axis labels, tick numbers, the
+        key and any annotations.  A single size is what keeps the figure
+        looking of a piece; the four overrides below exist for the rare case
+        that one element has to differ.  Default 44.
     label_fontsize, tick_fontsize, annotation_fontsize, legend_fontsize : float, optional
         Font sizes of the axis labels, ticks, row annotations and legend.
     marker_size : float, optional
@@ -1048,10 +1054,17 @@ def plot_delta_bsys(
     xlabel : str, optional
         Override the x-axis label.
     legend_loc : str, optional
-        ``'outside'`` (default) puts the key above the rows, where it cannot
-        cover one; anything else is passed to ``ax.legend`` as a location.
+        ``'outside'`` (default) puts the key above the rows and stretches it
+        to the axes width, so the key and the plot share their left and right
+        edges.  ``'right'`` puts it beside the rows as a single column,
+        top-aligned with the axes.  Either keeps the key clear of the data;
+        anything else is passed to ``ax.legend`` as a location.
     legend_ncol : int, optional
-        Number of legend columns.  Default 3.
+        Number of legend columns.  Default 2.  ``'outside'`` stretches the key
+        to the axes width, which divides that width equally between the
+        columns, so asking for more columns than the entries can fit makes
+        them collide -- two is what the default entries need.  Ignored by
+        ``'right'``, which is a single column by definition.
 
     Returns
     -------
@@ -1117,6 +1130,13 @@ def plot_delta_bsys(
                       component_colors[c], BAR_WIDTHS, marker_size,
                       mean_offset, statistic)
 
+    # One size unless a caller has singled an element out.
+    label_fontsize = fontsize if label_fontsize is None else label_fontsize
+    tick_fontsize = fontsize if tick_fontsize is None else tick_fontsize
+    annotation_fontsize = (fontsize if annotation_fontsize is None
+                           else annotation_fontsize)
+    legend_fontsize = fontsize if legend_fontsize is None else legend_fontsize
+
     limit = _axis_limit(summaries, scales, statistic=statistic)
     ax.set_xlim(-limit, limit)
     ax.set_ylim(ys[-1] + row_height * 0.75, ys[0] - row_height * 0.75)
@@ -1158,17 +1178,25 @@ def plot_delta_bsys(
     handles = _legend_handles(names, component_colors, nsigma, palette[3],
                               marker_size, statistic, interval_key)
     if legend_loc == 'outside':
-        # Above the rows, so no row can be covered by the key.
-        ax.legend(handles=handles, loc='lower center',
-                  bbox_to_anchor=(0.5, 1.01), frameon=False,
-                  fontsize=legend_fontsize, ncol=legend_ncol,
+        # Above the rows, stretched to the axes width with mode='expand', so
+        # the key and the plot share one left and one right edge instead of
+        # the key floating at whatever width its entries happen to need.
+        ax.legend(handles=handles, loc='lower left',
+                  bbox_to_anchor=(0., 1.01, 1., 0.1), mode='expand',
+                  frameon=False, fontsize=legend_fontsize, ncol=legend_ncol,
                   columnspacing=1.6, handlelength=2.4, borderaxespad=0.)
+    elif legend_loc == 'right':
+        # A single column beside the rows, top-aligned with the axes.
+        ax.legend(handles=handles, loc='upper left',
+                  bbox_to_anchor=(1.02, 1.), frameon=False,
+                  fontsize=legend_fontsize, ncol=1,
+                  handlelength=2.4, borderaxespad=0.)
     else:
         ax.legend(handles=handles, loc=legend_loc, frameon=False,
                   fontsize=legend_fontsize, ncol=legend_ncol)
 
     if title:
-        if legend_loc == 'outside':
+        if legend_loc in ('outside', 'right'):
             fig.suptitle(title, fontsize=label_fontsize)
         else:
             ax.set_title(title, fontsize=label_fontsize)

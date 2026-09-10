@@ -586,6 +586,31 @@ the levels, as the paper's does, and spends one legend slot instead of
 `nsigma`. It is ignored when only one level is drawn, and the bars on the axes
 are identical either way.
 
+### Type size and the key
+
+`fontsize` (default 44) sets **one** size for every piece of text on the
+figure — axis labels, tick numbers, the key and any annotations. A single size
+is what keeps the figure looking of a piece; `label_fontsize`,
+`tick_fontsize`, `annotation_fontsize` and `legend_fontsize` remain as
+overrides for the rare case that one element has to differ, and default to
+`fontsize` when not given.
+
+`legend_loc` places the key clear of the data two ways:
+
+| Value | Placement |
+|---|---|
+| `'outside'` (default) | Above the rows, stretched to the axes width, so the key and the plot share their left and right edges |
+| `'right'` | A single column beside the rows, top-aligned with the axes |
+
+Anything else is passed to `ax.legend` as a plain location.
+
+Because `'outside'` expands, the axes width is divided equally between
+`legend_ncol` columns — asking for more columns than the entries can fit makes
+them collide. Two, the default, is what the standard five entries need at the
+default type size. `'right'` is always one column and ignores `legend_ncol`;
+it suits a figure with width to spare, where `'outside'` suits a narrow one
+such as a single-column journal figure.
+
 ### What each point set shows
 
 | Mark | Meaning |

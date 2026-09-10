@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-09-10 — `Δ b_sys` plot: one type size, and a key that lines up
+
+Review comment on Figure 10: it looked disorganised, every font should match,
+and the key should either sit at the top matching the plot width or become a
+list to the right.
+
+- **`fontsize`** (default 44) now sets axis labels, tick numbers, annotations
+  and the key together. The four per-element sizes, which had drifted to 50 /
+  48 / 40 / 44, become optional overrides defaulting to it.
+- **`legend_loc='outside'`** stretches the key to the axes width with
+  `mode='expand'`, so the key and the plot share their left and right edges
+  instead of the key floating at whatever width its entries need.
+- **`legend_loc='right'`** is new: a single column beside the rows,
+  top-aligned with the axes, `legend_ncol` ignored.
+- **`legend_ncol` default 3 -> 2.** Expanding divides the axes width equally
+  between the columns, and at the default type size three columns overlap —
+  "Truth" ran into "Im". Two is what the five default entries need. Documented
+  on the parameter, since the failure is visual rather than an exception.
+
+**`paper_plots_c_v2_single_case.ipynb`** — the Figure 10 cell passes
+`fontsize=44`, `legend_loc='outside'`, `legend_ncol=2`.
+
+**Tests** — ten new (109 in the file, 301 in the suite): one size reaching
+every element, the default being uniform, per-element overrides surviving,
+annotations following `fontsize`, `'outside'` expanding, `'right'` being a
+single column beside the axes and ignoring `legend_ncol`, the new `ncol`
+default, plain locations still passed through, and the title clearing the key
+under both outside layouts. Three earlier tests were rewritten to match the
+collapsed key on structure rather than its wording, after the label was
+shortened from "Credible interval" to "Interval" in the working copy.
+
+---
+
 ## 2026-09-10 — `Δ b_sys` plot: one key entry for the credible intervals
 
 Review follow-up on Figure 10: trim the unused legend labels. With

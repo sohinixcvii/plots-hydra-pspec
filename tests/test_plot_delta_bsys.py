@@ -681,28 +681,36 @@ def _legend_labels(fig):
     return [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
 
 
+def _collapsed_entries(labels):
+    """Legend labels naming more than one sigma level at once.
+
+    Matched on structure rather than wording, so rephrasing the entry does
+    not break these tests.
+    """
+    return [l for l in labels
+            if sum(rf'${k}\sigma$' in l for k in (1, 2, 3)) > 1]
+
+
 def test_interval_key_collapsed_is_the_default(chain):
-    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)
-    labels = _legend_labels(fig)
-    assert sum('Credible interval' in l for l in labels) == 1
+    labels = _legend_labels(pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)[0])
+    assert len(_collapsed_entries(labels)) == 1
     assert not any(l.startswith('$2\\sigma$') for l in labels)
-    plt.close(fig)
+    plt.close('all')
 
 
 def test_interval_key_collapsed_names_every_level(chain):
-    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)
-    entry = [l for l in _legend_labels(fig) if 'Credible interval' in l][0]
+    labels = _legend_labels(pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)[0])
+    entry = _collapsed_entries(labels)[0]
     for k in (1, 2, 3):
         assert rf'${k}\sigma$' in entry
-    plt.close(fig)
+    plt.close('all')
 
 
 def test_interval_key_collapsed_wraps_to_two_lines(chain):
     """One long entry would set its whole legend column's width."""
-    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)
-    entry = [l for l in _legend_labels(fig) if 'Credible interval' in l][0]
-    assert '\n' in entry
-    plt.close(fig)
+    labels = _legend_labels(pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)[0])
+    assert '\n' in _collapsed_entries(labels)[0]
+    plt.close('all')
 
 
 def test_interval_key_graded_keeps_one_entry_per_level(chain):
@@ -710,7 +718,7 @@ def test_interval_key_graded_keeps_one_entry_per_level(chain):
                                  interval_key='graded')
     labels = _legend_labels(fig)
     assert sum('interval' in l for l in labels) == 3
-    assert not any('Credible interval' in l for l in labels)
+    assert not _collapsed_entries(labels)
     plt.close(fig)
 
 
@@ -727,8 +735,8 @@ def test_interval_key_ignored_for_a_single_level(chain):
     """With one level there is nothing to collapse."""
     fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=1)
     labels = _legend_labels(fig)
-    assert not any('Credible interval' in l for l in labels)
-    assert sum('interval' in l for l in labels) == 1
+    assert not _collapsed_entries(labels)
+    assert sum('interval' in l.lower() for l in labels) == 1
     plt.close(fig)
 
 
@@ -754,3 +762,93 @@ def test_interval_key_does_not_change_what_is_drawn(chain):
                            if l.get_linewidth() in pdb.BAR_WIDTHS]))
         plt.close(fig)
     assert counts[0] == counts[1] == 3 * len(TRUTHS)
+
+
+# ── Type size and legend placement ─────────────────────────────────────────
+
+def test_fontsize_sets_every_element(chain):
+    """One size covers axis labels, ticks and the key."""
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, fontsize=31.)
+    ax = fig.axes[0]
+    assert ax.xaxis.label.get_fontsize() == pytest.approx(31.)
+    assert ax.get_yticklabels()[0].get_fontsize() == pytest.approx(31.)
+    assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(31.)
+    for t in ax.get_legend().get_texts():
+        assert t.get_fontsize() == pytest.approx(31.)
+    plt.close(fig)
+
+
+def test_fontsize_default_is_uniform(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS)
+    ax = fig.axes[0]
+    sizes = {ax.xaxis.label.get_fontsize(),
+             ax.get_yticklabels()[0].get_fontsize(),
+             ax.get_legend().get_texts()[0].get_fontsize()}
+    assert len(sizes) == 1
+    plt.close(fig)
+
+
+def test_per_element_override_still_works(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, fontsize=30.,
+                                 legend_fontsize=12.)
+    ax = fig.axes[0]
+    assert ax.xaxis.label.get_fontsize() == pytest.approx(30.)
+    assert ax.get_legend().get_texts()[0].get_fontsize() == pytest.approx(12.)
+    plt.close(fig)
+
+
+def test_annotation_fontsize_follows_fontsize(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, annotate=True, fontsize=17.)
+    texts = [t for t in fig.axes[0].texts]
+    assert texts
+    assert all(t.get_fontsize() == pytest.approx(17.) for t in texts)
+    plt.close(fig)
+
+
+def test_legend_outside_expands_to_the_axes_width(chain):
+    """The key and the plot share their left and right edges."""
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, legend_loc='outside')
+    leg = fig.axes[0].get_legend()
+    assert leg._mode == 'expand'
+    bbox = leg.get_bbox_to_anchor()
+    assert bbox.width > 0
+    plt.close(fig)
+
+
+def test_legend_right_is_a_single_column(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, legend_loc='right',
+                                 legend_ncol=3)
+    leg = fig.axes[0].get_legend()
+    assert leg._ncols == 1          # legend_ncol ignored on purpose
+    assert leg._mode != 'expand'
+    plt.close(fig)
+
+
+def test_legend_right_sits_beside_the_axes(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, legend_loc='right')
+    leg = fig.axes[0].get_legend()
+    assert leg.get_bbox_to_anchor().x0 > fig.axes[0].get_window_extent().x0
+    plt.close(fig)
+
+
+def test_legend_ncol_default_is_two(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS)
+    assert fig.axes[0].get_legend()._ncols == 2
+    plt.close(fig)
+
+
+def test_legend_plain_location_still_honoured(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, legend_loc='lower right')
+    leg = fig.axes[0].get_legend()
+    assert leg._mode != 'expand'
+    plt.close(fig)
+
+
+def test_title_clears_the_key_for_both_outside_layouts(chain):
+    for loc in ('outside', 'right'):
+        fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, legend_loc=loc,
+                                     title='T')
+        # suptitle, not a set_title that the key would sit on top of.
+        assert fig._suptitle is not None
+        assert fig.axes[0].get_title() == ''
+        plt.close(fig)
