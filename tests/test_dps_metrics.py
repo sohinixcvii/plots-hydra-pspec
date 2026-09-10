@@ -331,9 +331,41 @@ def test_verdict_significant_when_accuracy_degrades(reference, biased):
 
 
 def test_verdict_tolerance_is_respected(reference, biased):
+    """A tolerance wide enough to swallow the bias downgrades the verdict.
+
+    Not all the way to neutral: shifting a lognormal posterior also widens it,
+    so `biased` has genuinely wider intervals than `reference`.
+    """
     ref, _, _ = dm.case_metrics(reference, estimator='mean')
     tgt, _, _ = dm.case_metrics(biased, estimator='mean')
+    assert dm.verdict(ref, tgt) == 'significantly degraded'
     assert dm.verdict(ref, tgt, tolerance=100.0) == 'mildly degraded'
+
+
+def test_verdict_neutral_when_nothing_moves(reference):
+    """Equal runs are not a mild degradation."""
+    ref, _, _ = dm.case_metrics(reference, estimator='mean')
+    assert dm.verdict(ref, ref) == 'not measurably degraded'
+
+
+def test_verdict_neutral_for_a_flat_width_ratio(reference, biased):
+    """The bias is what decides; a flat width ratio cannot make it mild."""
+    ref, _, _ = dm.case_metrics(reference, estimator='mean')
+    tgt, _, _ = dm.case_metrics(biased, estimator='mean')
+    assert dm.verdict(ref, tgt, tolerance=100.0, width_ratio=1.0) == \
+        'not measurably degraded'
+
+
+def test_verdict_uses_an_explicit_width_ratio(reference):
+    ref, _, _ = dm.case_metrics(reference, estimator='mean')
+    assert dm.verdict(ref, ref, width_ratio=2.0) == 'mildly degraded'
+
+
+def test_verdict_width_tolerance_is_respected(reference):
+    ref, _, _ = dm.case_metrics(reference, estimator='mean')
+    assert dm.verdict(ref, ref, width_ratio=1.05) == 'not measurably degraded'
+    assert dm.verdict(ref, ref, width_ratio=1.05, width_tolerance=0.01) == \
+        'mildly degraded'
 
 
 # ── compare_runs ───────────────────────────────────────────────────────────
@@ -348,7 +380,7 @@ def test_compare_runs_width_ratio_is_one_against_itself(reference):
     comp = dm.compare_runs(reference, reference, estimator='mean')
     assert comp.width_ratio_median == pytest.approx(1.0)
     assert comp.abs_z_ratio == pytest.approx(1.0)
-    assert comp.verdict == 'mildly degraded'
+    assert comp.verdict == 'not measurably degraded'
 
 
 def test_compare_runs_abs_z_ratio_flat_for_equal_bias(reference, wider):
@@ -416,6 +448,16 @@ def test_paper_sentence_switches_on_the_verdict(reference, wider, biased):
     assert 'predominantly one of precision' in mild
     assert 'more biased' in severe
     assert 'predominantly one of precision' not in severe
+
+
+def test_paper_sentence_neutral_claims_no_degradation(reference):
+    """An unchanged run must not be written up as a degradation."""
+    sentence = dm.paper_sentence(
+        dm.compare_runs(reference, reference, estimator='mean')
+    )
+    assert 'essentially indistinguishable' in sentence
+    assert 'degraded' not in sentence
+    assert 'widen by a median factor' not in sentence
 
 
 def test_to_dict_is_json_serialisable(reference, wider):

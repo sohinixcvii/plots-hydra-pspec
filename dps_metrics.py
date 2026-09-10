@@ -112,6 +112,10 @@ SIGMA_THRESHOLDS: Tuple[float, ...] = (2.0, 3.0)
 # and the degradation is reported as one of precision alone.
 ACCURACY_TOLERANCE: float = 0.25
 
+# Below this fractional change in the credible-interval width, the precision is
+# called unchanged too, and nothing has measurably degraded.
+WIDTH_TOLERANCE: float = 0.10
+
 # File names written by a hydra-pspec run.
 CHAIN_FILE = 'dps-eor.npy'
 LNPOST_FILE = 'ln-post.npy'
@@ -542,13 +546,17 @@ def verdict(
     reference: CaseMetrics,
     target: CaseMetrics,
     tolerance: float = ACCURACY_TOLERANCE,
+    width_ratio: Optional[float] = None,
+    width_tolerance: float = WIDTH_TOLERANCE,
 ) -> str:
-    """Classify the degradation as mild or significant.
+    """Classify the degradation, if there is one.
 
-    The rule the paper sentence turns on: widened credible intervals alone are
-    a loss of precision, not of accuracy.  Only if the normalised deviation
+    The rule the paper sentence turns on.  Widened credible intervals alone are
+    a loss of precision, not of accuracy; only if the normalised deviation
     grows as well -- meaning the wider intervals are *not* absorbing the larger
-    residuals -- is the degradation called significant.
+    residuals -- is the degradation called significant.  And if neither moves,
+    nothing has degraded, which is a result in its own right and must not be
+    reported as a mild degradation.
 
     Parameters
     ----------
@@ -557,16 +565,33 @@ def verdict(
     tolerance : float, optional
         Fractional growth in median ``|z|`` below which accuracy counts as
         unchanged.
+    width_ratio : float, optional
+        Median per-bin ratio of the credible-interval widths.  Defaults to the
+        ratio of the two median widths, which is close but not identical.
+    width_tolerance : float, optional
+        Fractional growth in that ratio below which precision counts as
+        unchanged.
 
     Returns
     -------
     str
-        ``'mildly degraded'`` or ``'significantly degraded'``.
+        ``'not measurably degraded'``, ``'mildly degraded'`` or
+        ``'significantly degraded'``.
     """
     if reference.median_abs_z <= 0:
         raise ValueError('reference median |z| is zero; cannot form a ratio')
-    growth = target.median_abs_z / reference.median_abs_z - 1.0
-    return 'significantly degraded' if growth > tolerance else 'mildly degraded'
+    if target.median_abs_z / reference.median_abs_z - 1.0 > tolerance:
+        return 'significantly degraded'
+
+    if width_ratio is None:
+        if reference.median_width <= 0:
+            raise ValueError(
+                'reference credible-interval width is zero; cannot form a ratio'
+            )
+        width_ratio = target.median_width / reference.median_width
+    if width_ratio - 1.0 > width_tolerance:
+        return 'mildly degraded'
+    return 'not measurably degraded'
 
 
 def compare_runs(
@@ -623,7 +648,10 @@ def compare_runs(
         ),
         std_ratio_median=float(np.median(std_ratio)),
         abs_z_ratio=float(tgt_metrics.median_abs_z / ref_metrics.median_abs_z),
-        verdict=verdict(ref_metrics, tgt_metrics, tolerance),
+        verdict=verdict(
+            ref_metrics, tgt_metrics, tolerance,
+            width_ratio=float(np.median(width_ratio)),
+        ),
         n_bins=ref_metrics.n_bins,
     )
 
@@ -699,6 +727,34 @@ def paper_sentence(comp: Comparison) -> str:
     """
     ref, tgt = comp.reference, comp.target
     lo, hi = comp.width_ratio_range
+
+    bins = (
+        f'{comp.n_bins} delay bins outside the foreground-dominated region'
+    )
+    accuracy = (
+        f'the median deviation of the recovered DPS from the true DPS, '
+        f'normalised by the posterior standard deviation, '
+        f'{"changes only from" if comp.verdict == "not measurably degraded" else "changes from"} '
+        f'${ref.median_abs_z:.2f}\\sigma$ to ${tgt.median_abs_z:.2f}\\sigma$'
+    )
+    discrepant = (
+        f'The number of bins discrepant at more than $2\\sigma$ is '
+        f'{ref.n_beyond["2"]} of {ref.n_bins} for the reference case and '
+        f'{tgt.n_beyond["2"]} of {tgt.n_bins} for the combined case.'
+    )
+
+    if comp.verdict == 'not measurably degraded':
+        return (
+            f'The recovered EoR DPS for the combined case is essentially '
+            f'indistinguishable from that of the control case. Across the '
+            f'{bins}, the median width of the credible interval differs by '
+            f'{abs(comp.width_ratio_median - 1.0) * 100:.0f}~per cent between '
+            f'the two, and {accuracy}. {discrepant} Injecting systematics at '
+            f'multiple Fourier mode pairs rather than one therefore neither '
+            f'widens the posterior on the EoR DPS nor moves it further from '
+            f'the truth, at the level these tests can resolve.'
+        )
+
     if comp.verdict == 'mildly degraded':
         tail = (
             'The loss is therefore predominantly one of precision rather than '
@@ -714,14 +770,9 @@ def paper_sentence(comp: Comparison) -> str:
     return (
         f'Despite these improvements in sampling efficiency, the DPS recovery '
         f'is {comp.verdict}: the posterior credible intervals widen by a '
-        f'median factor of {comp.width_ratio_median:.1f} '
-        f'(16th--84th percentile {lo:.1f}--{hi:.1f}) across the '
-        f'{comp.n_bins} delay bins outside the foreground-dominated region, '
-        f'while the median normalised deviation from the true DPS changes '
-        f'from {ref.median_abs_z:.1f}$\\sigma$ to {tgt.median_abs_z:.1f}$\\sigma$, '
-        f'with {tgt.n_beyond["2"]} of {tgt.n_bins} bins discrepant at more '
-        f'than $2\\sigma$ compared with {ref.n_beyond["2"]} of {ref.n_bins} '
-        f'for Case~\\RNum{{3}}. {tail}'
+        f'median factor of {comp.width_ratio_median:.2f} '
+        f'(16th--84th percentile {lo:.2f}--{hi:.2f}) across the {bins}, while '
+        f'{accuracy}. {discrepant} {tail}'
     )
 
 

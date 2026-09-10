@@ -724,10 +724,14 @@ widths — the factor by which the error bars grow.
 
 `verdict()` turns the numbers into the word the paper needs:
 
+* neither the widths nor median \|z\| move by more than their tolerances
+  (`WIDTH_TOLERANCE`, 10 %; `ACCURACY_TOLERANCE`, 25 %) → **not measurably
+  degraded**.  A result in its own right, and the branch that must not be
+  reported as a mild degradation.
 * widths grow but median \|z\| does not → **mildly degraded**.  The wider
   intervals absorb the larger residuals; the run is less *constraining*, not
   more *biased*.
-* median \|z\| grows by more than `ACCURACY_TOLERANCE` (25 %) as well →
+* median \|z\| grows by more than `ACCURACY_TOLERANCE` as well →
   **significantly degraded**.  The uncertainties are not keeping up with the
   residuals.
 
@@ -804,12 +808,13 @@ whole `Comparison` as JSON (`--json`).  No figures.
 
 ### Tests
 
-`tests/test_dps_metrics.py` — 72 tests on synthetic chains: the delay power
+`tests/test_dps_metrics.py` — 77 tests on synthetic chains: the delay power
 spectrum against the notebook helper term for term, both mask builders and
 their guards, the three estimators and the negative-weight warning, the
 credible interval against the notebook percentiles, the sign and scaling of
 `z`, recovery of a known 3σ bias, both branches of the verdict and its
-tolerance, the width ratio against a chain built at twice the width, the table
+tolerance, all three verdict branches, the width ratio against a chain built
+at twice the width, the table
 and sentence, JSON serialisation, `load_run`'s burn-in and trimming and its
 missing-file errors, and the command line including a two-directory run.
 

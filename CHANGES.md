@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-09-09 — `dps_metrics.py`: a verdict for "nothing changed"
+
+**Bug.** `verdict()` tested only whether accuracy had degraded and fell through
+to `'mildly degraded'` otherwise, so two runs that differ in nothing were
+written up as a mild degradation — and `paper_sentence()` then claimed the
+target "constrains the EoR power spectrum less tightly" beside a width ratio of
+1.00.  Found on the real Case III vs combined comparison, where every metric is
+flat to within a couple of per cent.
+
+- `verdict()` gains a third return, `'not measurably degraded'`, taken when
+  neither the credible-interval width nor median `|z|` grows past its
+  tolerance.  Precision now has its own `WIDTH_TOLERANCE` (10 %) beside the
+  existing `ACCURACY_TOLERANCE` (25 %), and the function takes the measured
+  per-bin `width_ratio`, which `compare_runs()` passes through, rather than
+  inferring it from the two median widths.
+- `paper_sentence()` builds a separate sentence for that branch, asserting
+  indistinguishability instead of degradation, and no longer opens with
+  "Despite these improvements in sampling efficiency" when there is nothing to
+  concede.  Both surviving branches now quote median `|z|` to two decimals:
+  4.35 and 4.43 were rendering as "4.4 to 4.4".
+
+**Tests** — five new, and two corrected.  `test_verdict_tolerance_is_respected`
+had assumed a bias leaves the posterior width alone; shifting a lognormal also
+scales it, so the `biased` fixture genuinely has wider intervals and the
+downgraded verdict is `'mildly degraded'`, not neutral.  Full suite: 228
+passed.
+
+---
+
 ## 2026-09-09 — DPS accuracy and precision metrics: `dps_metrics.py`
 
 **New: `dps_metrics.py`.** The combined-systematics section of the paper says
