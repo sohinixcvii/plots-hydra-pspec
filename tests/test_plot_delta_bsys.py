@@ -672,3 +672,85 @@ def test_axis_limit_ignores_undrawn_statistics(summaries):
 def test_axis_limit_rejects_unknown_statistic(summaries):
     with pytest.raises(ValueError, match='statistic must be one of'):
         pdb._axis_limit(summaries, np.ones(len(summaries)), statistic='nope')
+
+
+# ── interval_key ───────────────────────────────────────────────────────────
+
+def _legend_labels(fig):
+    """Legend entry texts of a finished figure."""
+    return [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
+
+
+def test_interval_key_collapsed_is_the_default(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)
+    labels = _legend_labels(fig)
+    assert sum('Credible interval' in l for l in labels) == 1
+    assert not any(l.startswith('$2\\sigma$') for l in labels)
+    plt.close(fig)
+
+
+def test_interval_key_collapsed_names_every_level(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)
+    entry = [l for l in _legend_labels(fig) if 'Credible interval' in l][0]
+    for k in (1, 2, 3):
+        assert rf'${k}\sigma$' in entry
+    plt.close(fig)
+
+
+def test_interval_key_collapsed_wraps_to_two_lines(chain):
+    """One long entry would set its whole legend column's width."""
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)
+    entry = [l for l in _legend_labels(fig) if 'Credible interval' in l][0]
+    assert '\n' in entry
+    plt.close(fig)
+
+
+def test_interval_key_graded_keeps_one_entry_per_level(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3,
+                                 interval_key='graded')
+    labels = _legend_labels(fig)
+    assert sum('interval' in l for l in labels) == 3
+    assert not any('Credible interval' in l for l in labels)
+    plt.close(fig)
+
+
+def test_interval_key_collapsed_shortens_the_key(chain):
+    collapsed = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3)
+    graded = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3,
+                                 interval_key='graded')
+    assert len(_legend_labels(collapsed[0])) == len(_legend_labels(graded[0])) - 2
+    plt.close(collapsed[0])
+    plt.close(graded[0])
+
+
+def test_interval_key_ignored_for_a_single_level(chain):
+    """With one level there is nothing to collapse."""
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=1)
+    labels = _legend_labels(fig)
+    assert not any('Credible interval' in l for l in labels)
+    assert sum('interval' in l for l in labels) == 1
+    plt.close(fig)
+
+
+def test_interval_key_absent_when_only_the_mean_is_drawn(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, statistic='mean')
+    assert not any('interval' in l for l in _legend_labels(fig))
+    plt.close(fig)
+
+
+def test_interval_key_rejects_unknown_value(chain):
+    with pytest.raises(ValueError, match='interval_key must be one of'):
+        pdb.plot_delta_bsys(chain, TRUTHS, interval_key='terse')
+
+
+def test_interval_key_does_not_change_what_is_drawn(chain):
+    """The key changes; the bars on the axes do not."""
+    counts = []
+    for key in ('collapsed', 'graded'):
+        fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, nsigma=3,
+                                     interval_key=key)
+        ax = fig.axes[0]
+        counts.append(len([l for l in ax.lines
+                           if l.get_linewidth() in pdb.BAR_WIDTHS]))
+        plt.close(fig)
+    assert counts[0] == counts[1] == 3 * len(TRUTHS)

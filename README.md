@@ -574,6 +574,18 @@ carrying either:
 confidence level is what the intervals support. The key and the x-axis limits
 follow the choice, so dropping a statistic can tighten the axis.
 
+`interval_key` controls how the intervals are named in that key:
+
+| Value | Key entries |
+|---|---|
+| `'collapsed'` (default) | One, `Credible interval (1σ/2σ/3σ)`, wrapped to two lines |
+| `'graded'` | One per level — three swatches differing only in line width |
+
+Collapsed suits a figure whose caption already maps thick, medium and thin to
+the levels, as the paper's does, and spends one legend slot instead of
+`nsigma`. It is ignored when only one level is drawn, and the bars on the axes
+are identical either way.
+
 ### What each point set shows
 
 | Mark | Meaning |

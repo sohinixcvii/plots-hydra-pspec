@@ -89,6 +89,11 @@ MEAN_OFFSET: float = 0.42
 # the pair a reader is unlikely to need at once.
 STATISTICS: Tuple[str, ...] = ('intervals', 'mean', 'both')
 
+# How the credible intervals are named in the key.  'collapsed' gives them one
+# entry naming every level; 'graded' gives one entry per level, three swatches
+# that differ only in line width.
+INTERVAL_KEYS: Tuple[str, ...] = ('collapsed', 'graded')
+
 # Vertical separation of the components of one parameter, as a fraction of the
 # row height.
 COMPONENT_GAP: float = 0.42
@@ -841,6 +846,7 @@ def _legend_handles(
     zero_color: str,
     marker_size: float,
     statistic: str = 'intervals',
+    interval_key: str = 'collapsed',
 ) -> List[Line2D]:
     """Key entries: the truth line, one per component, then the shapes.
 
@@ -859,6 +865,12 @@ def _legend_handles(
     statistic : {'intervals', 'mean', 'both'}, optional
         Which statistic is drawn.  The key describes only what is on the
         figure.  Default ``'intervals'``.
+    interval_key : {'collapsed', 'graded'}, optional
+        ``'collapsed'``, the default, gives the credible intervals a single
+        entry naming every level; ``'graded'`` gives one entry per level.
+        Collapsed suits a figure whose caption already maps thick, medium and
+        thin to the levels, and spends one slot instead of `nsigma`.  Ignored
+        when only one level is drawn.
 
     Returns
     -------
@@ -888,11 +900,26 @@ def _legend_handles(
             f'statistic must be one of {STATISTICS}, got {statistic!r}'
         )
 
+    if interval_key not in INTERVAL_KEYS:
+        raise ValueError(
+            f'interval_key must be one of {INTERVAL_KEYS}, got {interval_key!r}'
+        )
+
     if statistic in ('intervals', 'both'):
-        for k in range(min(nsigma, len(BAR_WIDTHS))):
-            handles.append(Line2D([0], [0], color=shape_color, lw=BAR_WIDTHS[k],
-                                  alpha=1.0 - 0.15 * k,
-                                  label=rf'${k + 1}\sigma$ interval'))
+        nlevels = min(nsigma, len(BAR_WIDTHS))
+        if interval_key == 'collapsed' and nlevels > 1:
+            levels = '/'.join(rf'${k + 1}\sigma$' for k in range(nlevels))
+            # Two lines: one long entry would set the width of its whole
+            # legend column and strand the entries beside it.
+            handles.append(Line2D([0], [0], color=shape_color,
+                                  lw=BAR_WIDTHS[0],
+                                  label=f'Credible interval\n({levels})'))
+        else:
+            for k in range(nlevels):
+                handles.append(Line2D([0], [0], color=shape_color,
+                                      lw=BAR_WIDTHS[k],
+                                      alpha=1.0 - 0.15 * k,
+                                      label=rf'${k + 1}\sigma$ interval'))
         handles.append(
             Line2D([0], [0], color=shape_color, marker='o', ls='none',
                    markersize=marker_size, markerfacecolor='white',
@@ -941,6 +968,7 @@ def plot_delta_bsys(
     thin: int = 1,
     nsigma: int = 3,
     statistic: str = 'intervals',
+    interval_key: str = 'collapsed',
     units: str = 'absolute',
     annotate: bool = False,
     annotation_sig: int = 3,
@@ -988,6 +1016,10 @@ def plot_delta_bsys(
         are what supports reading a bias off the figure at a stated
         confidence level, so they are the default; the mean and its error bar
         say much the same thing again and are rarely worth the second marker.
+    interval_key : {'collapsed', 'graded'}, optional
+        Whether the credible intervals get one key entry naming every level
+        (default) or one entry each.  The caption of the paper figure already
+        maps thick, medium and thin to the levels, so one entry suffices there.
     units : {'absolute', 'sigma'}, optional
         Draw the residuals in their own units, or divided by each point set's
         sigma.  Default ``'absolute'``.
@@ -1124,7 +1156,7 @@ def plot_delta_bsys(
                 )
 
     handles = _legend_handles(names, component_colors, nsigma, palette[3],
-                              marker_size, statistic)
+                              marker_size, statistic, interval_key)
     if legend_loc == 'outside':
         # Above the rows, so no row can be covered by the key.
         ax.legend(handles=handles, loc='lower center',
@@ -1252,6 +1284,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument('--statistic', default='intervals',
                         choices=STATISTICS,
                         help='what each point set shows (default intervals)')
+    parser.add_argument('--interval-key', default='collapsed',
+                        choices=INTERVAL_KEYS, dest='interval_key',
+                        help='one key entry for the intervals, or one each '
+                             '(default collapsed)')
     parser.add_argument('--units', default='absolute',
                         choices=('absolute', 'sigma'),
                         help="x-axis units (default 'absolute')")
@@ -1288,7 +1324,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     fig, summaries = plot_delta_bsys(
         chain, truths, components=components, nsigma=args.nsigma,
-        statistic=args.statistic, units=args.units, annotate=args.annotate,
+        statistic=args.statistic, interval_key=args.interval_key,
+        units=args.units, annotate=args.annotate,
         title='Demo: synthetic chain',
     )
     print(summary_text(summaries))

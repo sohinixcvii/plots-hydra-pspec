@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-09-10 — `Δ b_sys` plot: one key entry for the credible intervals
+
+Review follow-up on Figure 10: trim the unused legend labels. With
+`statistic='intervals'` nothing in the key was dangling any more — every entry
+matched an artist actually drawn — but the intervals still spent three slots on
+three swatches that differ only in line width.
+
+- **New `interval_key` parameter**, `'collapsed'` (default) or `'graded'`.
+  Collapsed gives the intervals a single entry, `Credible interval
+  (1σ/2σ/3σ)`, taking the key from seven entries to five and from three rows
+  to two. Graded restores one entry per level.
+- The collapsed label is wrapped to two lines deliberately: as a single line it
+  set the width of its whole legend column and stranded the entries beside it.
+- Collapsing is skipped when `nsigma` is 1, where there is nothing to collapse,
+  and the bars drawn on the axes are unchanged either way — only the key moves.
+- `--interval-key` added to the demo command line.
+
+**`paper_plots_c_v2_single_case.ipynb`** — the Figure 10 cell passes
+`interval_key='collapsed'`.
+
+**Tests** — nine new (98 in the file, 291 in the suite): the default, every
+level named in the one entry, the two-line wrap, `'graded'` restoring three
+entries, the key shrinking by exactly two, the single-level and mean-only
+cases, the guard on an unknown value, and that the bars on the axes are
+identical under both settings.
+
+---
+
 ## 2026-09-10 — `--task bsys`: explicit parameter mapping
 
 The first real run of this check compared an individual Case III run against
