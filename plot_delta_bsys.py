@@ -913,7 +913,7 @@ def _legend_handles(
             # legend column and strand the entries beside it.
             handles.append(Line2D([0], [0], color=shape_color,
                                   lw=BAR_WIDTHS[0],
-                                  label=f'Credible interval\n({levels})'))
+                                  label=f'Interval\n({levels})'))
         else:
             for k in range(nlevels):
                 handles.append(Line2D([0], [0], color=shape_color,
