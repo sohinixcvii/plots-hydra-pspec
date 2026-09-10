@@ -665,7 +665,8 @@ def test_bsys_spread_rejects_1d(bsys_plain):
 def test_compare_bsys_spread_detects_the_inflated_parameter(
         bsys_plain, bsys_partnered):
     """The signature the combined-case argument predicts."""
-    table = dm.compare_bsys_spread(bsys_plain, bsys_partnered)
+    with pytest.warns(RuntimeWarning, match='by position'):
+        table = dm.compare_bsys_spread(bsys_plain, bsys_partnered)
     rows = [l for l in table.splitlines() if l.startswith('b_sys,')]
     assert 'wider' in rows[0]
     assert all('unchanged' in r for r in rows[1:])
@@ -679,8 +680,53 @@ def test_compare_bsys_spread_flat_against_itself(bsys_plain):
 
 def test_compare_bsys_spread_matches_by_position(bsys_plain, bsys_partnered):
     """Only the parameters the two runs share are compared."""
-    table = dm.compare_bsys_spread(bsys_plain, bsys_partnered)
+    with pytest.warns(RuntimeWarning):
+        table = dm.compare_bsys_spread(bsys_plain, bsys_partnered)
     assert len([l for l in table.splitlines() if l.startswith('b_sys,')]) == 4
+
+
+def test_compare_bsys_spread_warns_on_mismatched_sizes(
+        bsys_plain, bsys_partnered):
+    """Positional matching across runs of different size is a trap.
+
+    Comparing an individual Case III run against the combined run this way
+    silently pits Case III's parameters against the combined run's Case I
+    modes, which is what happened on the first real run of this check.
+    """
+    with pytest.warns(RuntimeWarning, match='Case I modes'):
+        dm.compare_bsys_spread(bsys_plain, bsys_partnered)
+
+
+def test_compare_bsys_spread_silent_when_sizes_match(bsys_plain):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        dm.compare_bsys_spread(bsys_plain, bsys_plain)
+    assert not [w for w in caught if issubclass(w.category, RuntimeWarning)]
+
+
+def test_compare_bsys_spread_silent_with_explicit_indices(
+        bsys_plain, bsys_partnered):
+    """An explicit mapping is a statement of intent; no warning."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        dm.compare_bsys_spread(bsys_plain, bsys_partnered,
+                               indices=[(0, 8), (1, 9), (2, 10), (3, 11)])
+    assert not [w for w in caught if issubclass(w.category, RuntimeWarning)]
+
+
+def test_parse_index_map_is_one_based():
+    assert dm._parse_index_map('1:9,2:10') == [(0, 8), (1, 9)]
+
+
+def test_parse_index_map_single_pair():
+    assert dm._parse_index_map('4:12') == [(3, 11)]
+
+
+def test_parse_index_map_rejects_junk():
+    import argparse
+    for bad in ('1-9', 'a:b', '1', '0:3', ''):
+        with pytest.raises(argparse.ArgumentTypeError):
+            dm._parse_index_map(bad)
 
 
 def test_compare_bsys_spread_honours_explicit_indices(
@@ -874,14 +920,39 @@ def test_main_bsys_task_reports_spread_and_correlation(tmp_path, capsys):
     np.save(ref_d / dm.BSYS_FILE, ref)
     np.save(tgt_d / dm.BSYS_FILE, tgt)
 
-    code = dm.main([
-        '--task', 'bsys', '--reference', f'Case I={ref_d}',
-        '--target', f'Combined={tgt_d}', '--burn-pc', '0', '--pair', '1,12',
-    ])
+    with pytest.warns(RuntimeWarning):
+        code = dm.main([
+            '--task', 'bsys', '--reference', f'Case I={ref_d}',
+            '--target', f'Combined={tgt_d}', '--burn-pc', '0',
+            '--pair', '1,12',
+        ])
     assert code == 0
     out = capsys.readouterr().out
     assert 'wider' in out
     assert 'Partner correlation' in out
+
+
+def test_main_bsys_task_honours_the_map(tmp_path, capsys):
+    """--map compares the modes the caller names, not position 1 to 1."""
+    rng = np.random.default_rng(21)
+    ref_d, tgt_d = tmp_path / 'ref2', tmp_path / 'tgt2'
+    ref_d.mkdir(); tgt_d.mkdir()
+    np.save(ref_d / dm.BSYS_FILE,
+            rng.normal(size=(400, 4)) + 1j * rng.normal(size=(400, 4)))
+    tgt = rng.normal(size=(400, 12)) + 1j * rng.normal(size=(400, 12))
+    tgt[:, 8:12] *= 5.0                      # the Case III block, inflated
+    np.save(tgt_d / dm.BSYS_FILE, tgt)
+
+    code = dm.main([
+        '--task', 'bsys', '--reference', f'Case III={ref_d}',
+        '--target', f'Combined={tgt_d}', '--burn-pc', '0',
+        '--map', '1:9,2:10,3:11,4:12',
+    ])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert 'b_sys,1 -> b_sys,9' in out
+    assert 'b_sys,4 -> b_sys,12' in out
+    assert out.count('wider') >= 4
 
 
 def test_load_bsys_discards_burn_in(tmp_path):

@@ -791,11 +791,31 @@ foreground-degenerate component. The prediction is a spread ratio **above one**
 for the affected parameter, and a strong correlation with its partner. A ratio
 at or below one refutes it.
 
+**Mind the parameter mapping.** The combined run orders its twelve amplitudes
+by source case, so position 1 does not mean the same thing in both runs:
+
+| Combined | Modes from | Compare an individual run with |
+|---|---|---|
+| `b_sys,1-4` | Case I `(3,0)...(6,0)` | positional default |
+| `b_sys,5-8` | Case II `(10,0)...(13,0)` | `--map 1:5,2:6,3:7,4:8` |
+| `b_sys,9-12` | Case III `(3,20)...(6,20)` | `--map 1:9,2:10,3:11,4:12` |
+
+Without `--map` the parameters are matched by position, which is right only for
+Case I; a warning fires whenever the two runs differ in size and no mapping was
+given.
+
 ```bash
+# Case I: positional matching is already correct
 conda run -n py10 python dps_metrics.py --task bsys \
     --reference 'Case I=.../250k_run/low_dl_fr_0' \
     --target 'Combined=.../250k_run/caseiv' \
     --niter 250000 --pair 1,9
+
+# Case III: its modes are b_sys,9-12 of the combined run
+conda run -n py10 python dps_metrics.py --task bsys \
+    --reference 'Case III=.../250k_run/low_dl_fr_20' \
+    --target 'Combined=.../250k_run/caseiv' \
+    --niter 250000 --map 1:9,2:10,3:11,4:12
 ```
 
 **`--task sky`** — RMS residual between the true sky and its posterior

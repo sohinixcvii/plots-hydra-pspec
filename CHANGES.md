@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-09-10 — `--task bsys`: explicit parameter mapping
+
+The first real run of this check compared an individual Case III run against
+the combined run with the default positional matching, which silently pitted
+Case III's four amplitudes against the combined run's `b_sys,1-4` — the
+**Case I** modes. The combined run orders its twelve amplitudes by source case
+(1-4 Case I, 5-8 Case II, 9-12 Case III), so position means different things in
+the two runs and the resulting ratios tested nothing.
+
+- **`--map I:J[,I:J...]`** (1-based) states which reference parameter matches
+  which target parameter, e.g. `--map 1:9,2:10,3:11,4:12` for Case III.
+  `compare_bsys_spread()` already took `indices`; this exposes it on the
+  command line.
+- `compare_bsys_spread()` now **warns** when asked to match by position across
+  runs holding different numbers of parameters, and names the block layout in
+  the warning. An explicit mapping is a statement of intent and passes
+  silently.
+
+**Tests** — seven new (282 in the suite): the warning firing on mismatched
+sizes and staying quiet when sizes agree or a mapping is given, `--map` parsing
+and its guards, and an end-to-end run in which only the mapped Case III block
+is inflated, confirming the table follows the mapping rather than position.
+
+---
+
 ## 2026-09-10 — `dps_metrics.py`: b_sys spread, sky residuals, `--task`
 
 Two analyses asked for alongside the DPS comparison, both reported as

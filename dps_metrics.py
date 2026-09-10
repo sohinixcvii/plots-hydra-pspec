@@ -83,7 +83,7 @@ import json
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -1045,6 +1045,17 @@ def compare_bsys_spread(
 
     if indices is None:
         n = min(reference.shape[1], target.shape[1])
+        if reference.shape[1] != target.shape[1]:
+            warnings.warn(
+                f'matching {n} parameters by position, but the runs hold '
+                f'{reference.shape[1]} and {target.shape[1]}. That is only '
+                'the right mapping if the target lists the reference\'s modes '
+                'first -- for the combined run, b_sys,1-4 are the Case I '
+                'modes, 5-8 Case II and 9-12 Case III. Pass indices (or --map) '
+                'to say so explicitly.',
+                RuntimeWarning,
+                stacklevel=2,
+            )
         indices = [(i, i) for i in range(n)]
     for a, b in indices:
         if not 0 <= a < reference.shape[1]:
@@ -1426,6 +1437,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="run directories for --task sky, in the order to table them",
     )
     p.add_argument(
+        '--map', metavar='I:J[,I:J...]', dest='index_map', default=None,
+        help=(
+            'for --task bsys, which reference parameter matches which target '
+            'parameter, 1-based, e.g. 1:9,2:10,3:11,4:12 to compare an '
+            'individual Case III run against the combined run. Without it the '
+            'parameters are matched by position, which is right only for '
+            'Case I'
+        ),
+    )
+    p.add_argument(
         '--pair', metavar='I,J', default=None,
         help=(
             'for --task bsys, the 1-based parameter pair whose correlation '
@@ -1524,6 +1545,40 @@ def _parse_pair(spec: str) -> Tuple[int, int]:
     return i - 1, j - 1
 
 
+def _parse_index_map(spec: str) -> List[Tuple[int, int]]:
+    """Parse a 1-based ``I:J,I:J`` parameter mapping into 0-based pairs.
+
+    Parameters
+    ----------
+    spec : str
+        Mapping as given on the command line, e.g. ``'1:9,2:10'``.
+
+    Returns
+    -------
+    list of (int, int)
+        Zero-based ``(reference index, target index)`` pairs.
+    """
+    pairs = []
+    for chunk in spec.split(','):
+        parts = chunk.split(':')
+        if len(parts) != 2:
+            raise argparse.ArgumentTypeError(
+                f'--map wants I:J pairs, got {chunk!r}'
+            )
+        try:
+            a, b = int(parts[0]), int(parts[1])
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f'--map wants integers, got {chunk!r}'
+            ) from exc
+        if a < 1 or b < 1:
+            raise argparse.ArgumentTypeError('--map indices are 1-based')
+        pairs.append((a - 1, b - 1))
+    if not pairs:
+        raise argparse.ArgumentTypeError('--map is empty')
+    return pairs
+
+
 def _run_bsys(args: argparse.Namespace) -> int:
     """Handle ``--task bsys``: posterior spread, and the partner correlation.
 
@@ -1546,12 +1601,15 @@ def _run_bsys(args: argparse.Namespace) -> int:
     reference = load_bsys(ref_dir, args.niter, args.burn_pc)
     target = load_bsys(tgt_dir, args.niter, args.burn_pc)
 
+    indices = _parse_index_map(args.index_map) if args.index_map else None
+
     print('Marginal posterior spread of the systematics amplitudes')
     print('(the combined-case argument predicts a ratio above one)\n')
     print(compare_bsys_spread(
         reference, target,
         ref_label or Path(ref_dir).name,
         tgt_label or Path(tgt_dir).name,
+        indices=indices,
     ))
 
     if args.pair:
