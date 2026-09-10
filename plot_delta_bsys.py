@@ -79,8 +79,15 @@ BAR_WIDTHS: Tuple[float, ...] = (11.0, 5.5, 2.2)
 NEUTRAL_COLOR: str = '#555555'
 
 # Vertical offset of the mean +/- sigma error bar below its interval bar, as a
-# fraction of the space one point set owns.
+# fraction of the space one point set owns.  Only used by
+# ``statistic='both'``; the single-statistic styles centre on the row.
 MEAN_OFFSET: float = 0.42
+
+# The statistics a point set can be drawn as.  'intervals' is the graded
+# credible intervals with the posterior median; 'mean' is the posterior mean
+# with a +/- sigma error bar; 'both' draws them one above the other, which is
+# the pair a reader is unlikely to need at once.
+STATISTICS: Tuple[str, ...] = ('intervals', 'mean', 'both')
 
 # Vertical separation of the components of one parameter, as a fraction of the
 # row height.
@@ -699,8 +706,9 @@ def _draw_row(
     bar_widths: Sequence[float],
     marker_size: float,
     mean_offset: float,
+    statistic: str = 'intervals',
 ) -> None:
-    """Draw the interval bars and markers of one point set onto ``ax``.
+    """Draw one point set onto ``ax``, as the statistic asked for.
 
     Parameters
     ----------
@@ -719,8 +727,40 @@ def _draw_row(
     marker_size : float
         Size of the median marker.
     mean_offset : float
-        Vertical offset of the mean error bar below the interval bar.
+        Vertical offset of the mean error bar below the interval bar.  Applied
+        only when both statistics are drawn.
+    statistic : {'intervals', 'mean', 'both'}, optional
+        Which statistic this point set shows.  Default ``'intervals'``.
     """
+    if statistic not in STATISTICS:
+        raise ValueError(
+            f'statistic must be one of {STATISTICS}, got {statistic!r}'
+        )
+
+    draw_intervals = statistic in ('intervals', 'both')
+    draw_mean = statistic in ('mean', 'both')
+    # With one statistic on the row it sits on the row centre; with both, the
+    # mean drops below so the two do not overlap.
+    mean_y = y + mean_offset if statistic == 'both' else y
+
+    if draw_mean:
+        ax.errorbar(
+            summary.mean / scale,
+            mean_y,
+            xerr=summary.std / scale,
+            fmt='D',
+            markersize=marker_size * (0.55 if statistic == 'both' else 0.8),
+            color=color,
+            ecolor=color,
+            elinewidth=2.0,
+            capsize=5,
+            capthick=2.0,
+            zorder=7,
+        )
+
+    if not draw_intervals:
+        return
+
     nlevels = len(summary.lower)
 
     # Widest interval first, so the thicker inner bars are drawn on top.
@@ -735,21 +775,6 @@ def _draw_row(
             solid_capstyle='butt',
             zorder=3 + k,
         )
-
-    # Mean +/- sigma, offset below the interval bar so the two do not overlap.
-    ax.errorbar(
-        summary.mean / scale,
-        y + mean_offset,
-        xerr=summary.std / scale,
-        fmt='D',
-        markersize=marker_size * 0.55,
-        color=color,
-        ecolor=color,
-        elinewidth=2.0,
-        capsize=5,
-        capthick=2.0,
-        zorder=7,
-    )
 
     # Median on top of the interval bars.
     ax.plot(
@@ -769,6 +794,7 @@ def _axis_limit(
     summaries: Sequence[DeltaSummary],
     scales: np.ndarray,
     pad: float = XPAD,
+    statistic: str = 'intervals',
 ) -> float:
     """Half-width of a symmetric x axis holding every drawn element.
 
@@ -780,6 +806,9 @@ def _axis_limit(
         Per-parameter divisors from `_scale_factors`.
     pad : float, optional
         Extra fraction of the half-range added at both ends.  Default `XPAD`.
+    statistic : {'intervals', 'mean', 'both'}, optional
+        Which statistic is drawn; only what is on the figure sets the limit,
+        so dropping one can tighten the axis.  Default ``'intervals'``.
 
     Returns
     -------
@@ -787,11 +816,17 @@ def _axis_limit(
         Positive half-width; the axis then runs from ``-limit`` to ``+limit``,
         centred on zero.
     """
+    if statistic not in STATISTICS:
+        raise ValueError(
+            f'statistic must be one of {STATISTICS}, got {statistic!r}'
+        )
     reach = [0.]
     for s, scale in zip(summaries, scales):
-        reach.extend(abs(v) / scale for v in s.lower)
-        reach.extend(abs(v) / scale for v in s.upper)
-        reach.append((abs(s.mean) + s.std) / scale)
+        if statistic in ('intervals', 'both'):
+            reach.extend(abs(v) / scale for v in s.lower)
+            reach.extend(abs(v) / scale for v in s.upper)
+        if statistic in ('mean', 'both'):
+            reach.append((abs(s.mean) + s.std) / scale)
 
     limit = max(reach)
     if limit <= 0.:
@@ -805,6 +840,7 @@ def _legend_handles(
     nsigma: int,
     zero_color: str,
     marker_size: float,
+    statistic: str = 'intervals',
 ) -> List[Line2D]:
     """Key entries: the truth line, one per component, then the shapes.
 
@@ -820,6 +856,9 @@ def _legend_handles(
         Colour of the line through zero.
     marker_size : float
         Size of the median marker.
+    statistic : {'intervals', 'mean', 'both'}, optional
+        Which statistic is drawn.  The key describes only what is on the
+        figure.  Default ``'intervals'``.
 
     Returns
     -------
@@ -844,18 +883,29 @@ def _legend_handles(
     else:
         shape_color = component_colors[0]
 
-    for k in range(min(nsigma, len(BAR_WIDTHS))):
-        handles.append(Line2D([0], [0], color=shape_color, lw=BAR_WIDTHS[k],
-                              alpha=1.0 - 0.15 * k,
-                              label=rf'${k + 1}\sigma$ interval'))
+    if statistic not in STATISTICS:
+        raise ValueError(
+            f'statistic must be one of {STATISTICS}, got {statistic!r}'
+        )
 
-    handles += [
-        Line2D([0], [0], color=shape_color, marker='o', ls='none',
-               markersize=marker_size, markerfacecolor='white',
-               markeredgewidth=2.0, label='Median'),
-        Line2D([0], [0], color=shape_color, marker='D', ls='none',
-               markersize=marker_size * 0.55, label=r'Mean $\pm\ \sigma$'),
-    ]
+    if statistic in ('intervals', 'both'):
+        for k in range(min(nsigma, len(BAR_WIDTHS))):
+            handles.append(Line2D([0], [0], color=shape_color, lw=BAR_WIDTHS[k],
+                                  alpha=1.0 - 0.15 * k,
+                                  label=rf'${k + 1}\sigma$ interval'))
+        handles.append(
+            Line2D([0], [0], color=shape_color, marker='o', ls='none',
+                   markersize=marker_size, markerfacecolor='white',
+                   markeredgewidth=2.0, label='Median')
+        )
+
+    if statistic in ('mean', 'both'):
+        handles.append(
+            Line2D([0], [0], color=shape_color, marker='D', ls='none',
+                   markersize=marker_size * (0.55 if statistic == 'both'
+                                             else 0.8),
+                   label=r'Mean $\pm\ \sigma$')
+        )
     return handles
 
 
@@ -890,6 +940,7 @@ def plot_delta_bsys(
     burn: int = 0,
     thin: int = 1,
     nsigma: int = 3,
+    statistic: str = 'intervals',
     units: str = 'absolute',
     annotate: bool = False,
     annotation_sig: int = 3,
@@ -900,8 +951,8 @@ def plot_delta_bsys(
     row_height: float = 1.15,
     label_fontsize: float = 50.,
     tick_fontsize: float = 48.,
-    annotation_fontsize: float = 20.,
-    legend_fontsize: float = 22.,
+    annotation_fontsize: float = 40.,
+    legend_fontsize: float = 44.,
     marker_size: float = 13.,
     title: Optional[str] = None,
     xlabel: Optional[str] = None,
@@ -929,6 +980,14 @@ def plot_delta_bsys(
         Keep every ``thin``-th sample.  Default 1.
     nsigma : int, optional
         Highest credible interval drawn.  Default 3.
+    statistic : {'intervals', 'mean', 'both'}, optional
+        What each point set shows.  ``'intervals'``, the default, draws the
+        graded credible intervals with the posterior median on top;
+        ``'mean'`` draws the posterior mean with a ``+/- sigma`` error bar;
+        ``'both'`` draws the two one above the other.  The credible intervals
+        are what supports reading a bias off the figure at a stated
+        confidence level, so they are the default; the mean and its error bar
+        say much the same thing again and are rarely worth the second marker.
     units : {'absolute', 'sigma'}, optional
         Draw the residuals in their own units, or divided by each point set's
         sigma.  Default ``'absolute'``.
@@ -1024,9 +1083,9 @@ def plot_delta_bsys(
         for y, summary in zip(ys + offsets[c], summaries_c):
             _draw_row(ax, y, summary, scale_of[id(summary)],
                       component_colors[c], BAR_WIDTHS, marker_size,
-                      mean_offset)
+                      mean_offset, statistic)
 
-    limit = _axis_limit(summaries, scales)
+    limit = _axis_limit(summaries, scales, statistic=statistic)
     ax.set_xlim(-limit, limit)
     ax.set_ylim(ys[-1] + row_height * 0.75, ys[0] - row_height * 0.75)
 
@@ -1065,7 +1124,7 @@ def plot_delta_bsys(
                 )
 
     handles = _legend_handles(names, component_colors, nsigma, palette[3],
-                              marker_size)
+                              marker_size, statistic)
     if legend_loc == 'outside':
         # Above the rows, so no row can be covered by the key.
         ax.legend(handles=handles, loc='lower center',
@@ -1190,6 +1249,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                         help='write the demo figure to this path')
     parser.add_argument('--nsigma', type=int, default=3, choices=(1, 2, 3),
                         help='highest credible interval drawn (default 3)')
+    parser.add_argument('--statistic', default='intervals',
+                        choices=STATISTICS,
+                        help='what each point set shows (default intervals)')
     parser.add_argument('--units', default='absolute',
                         choices=('absolute', 'sigma'),
                         help="x-axis units (default 'absolute')")
@@ -1226,7 +1288,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     fig, summaries = plot_delta_bsys(
         chain, truths, components=components, nsigma=args.nsigma,
-        units=args.units, annotate=args.annotate,
+        statistic=args.statistic, units=args.units, annotate=args.annotate,
         title='Demo: synthetic chain',
     )
     print(summary_text(summaries))

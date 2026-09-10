@@ -565,3 +565,110 @@ def test_main_runs_and_writes(tmp_path):
 
 def test_main_without_save():
     assert pdb.main(['--ndim', '2', '--units', 'sigma']) == 0
+
+
+# ── statistic ──────────────────────────────────────────────────────────────
+
+def _collect(ax):
+    """Marker shapes drawn on `ax`, as a set."""
+    return {ln.get_marker() for ln in ax.lines}
+
+
+def test_statistic_default_is_intervals(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS)
+    ax = fig.axes[0]
+    assert 'o' in _collect(ax)          # median
+    assert 'D' not in _collect(ax)      # no mean marker
+    plt.close(fig)
+
+
+def test_statistic_intervals_draws_the_bars(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, statistic='intervals', nsigma=3)
+    ax = fig.axes[0]
+    bars = [ln for ln in ax.lines if ln.get_linewidth() in pdb.BAR_WIDTHS]
+    assert len(bars) == 3 * len(TRUTHS)
+    plt.close(fig)
+
+
+def test_statistic_mean_drops_the_bars_and_median(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, statistic='mean')
+    ax = fig.axes[0]
+    assert 'o' not in _collect(ax)
+    bars = [ln for ln in ax.lines if ln.get_linewidth() in pdb.BAR_WIDTHS]
+    assert not bars
+    plt.close(fig)
+
+
+def test_statistic_both_draws_everything(chain):
+    fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, statistic='both', nsigma=3)
+    ax = fig.axes[0]
+    assert 'o' in _collect(ax)
+    bars = [ln for ln in ax.lines if ln.get_linewidth() in pdb.BAR_WIDTHS]
+    assert len(bars) == 3 * len(TRUTHS)
+    plt.close(fig)
+
+
+def test_statistic_rejects_unknown_value(chain):
+    with pytest.raises(ValueError, match='statistic must be one of'):
+        pdb.plot_delta_bsys(chain, TRUTHS, statistic='violin')
+
+
+def test_statistic_key_names_only_what_is_drawn(chain):
+    labels = {}
+    for st in ('intervals', 'mean', 'both'):
+        fig, _ = pdb.plot_delta_bsys(chain, TRUTHS, statistic=st)
+        leg = fig.axes[0].get_legend()
+        labels[st] = {t.get_text() for t in leg.get_texts()}
+        plt.close(fig)
+
+    assert 'Median' in labels['intervals']
+    assert not any('Mean' in s for s in labels['intervals'])
+
+    assert any('Mean' in s for s in labels['mean'])
+    assert 'Median' not in labels['mean']
+    assert not any('interval' in s for s in labels['mean'])
+
+    assert 'Median' in labels['both']
+    assert any('Mean' in s for s in labels['both'])
+
+
+def _marker_ys(ax, marker):
+    """Y positions of every Line2D drawn with `marker`."""
+    return sorted(
+        float(y)
+        for ln in ax.lines if ln.get_marker() == marker
+        for y in ln.get_ydata()
+    )
+
+
+def test_statistic_mean_centres_on_the_row(chain):
+    """One statistic per row sits on the row centre; two dodge apart."""
+    fig_i, _ = pdb.plot_delta_bsys(chain, TRUTHS, statistic='intervals')
+    fig_m, _ = pdb.plot_delta_bsys(chain, TRUTHS, statistic='mean')
+    fig_b, _ = pdb.plot_delta_bsys(chain, TRUTHS, statistic='both')
+
+    medians = _marker_ys(fig_i.axes[0], 'o')
+    means = _marker_ys(fig_m.axes[0], 'D')
+    means_both = _marker_ys(fig_b.axes[0], 'D')
+
+    # Alone, the mean sits exactly where the median sits.
+    assert means == pytest.approx(medians)
+    # Together, it is pushed below by the offset.
+    assert all(b > m for b, m in zip(means_both, means))
+
+    for f in (fig_i, fig_m, fig_b):
+        plt.close(f)
+
+
+def test_axis_limit_ignores_undrawn_statistics(summaries):
+    scales = np.ones(len(summaries))
+    only_mean = pdb._axis_limit(summaries, scales, statistic='mean')
+    intervals = pdb._axis_limit(summaries, scales, statistic='intervals')
+    both = pdb._axis_limit(summaries, scales, statistic='both')
+    assert only_mean < intervals
+    assert both == pytest.approx(max(only_mean, intervals))
+
+
+def test_axis_limit_rejects_unknown_statistic(summaries):
+    with pytest.raises(ValueError, match='statistic must be one of'):
+        pdb._axis_limit(summaries, np.ones(len(summaries)), statistic='nope')

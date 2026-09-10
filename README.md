@@ -557,6 +557,23 @@ The figure carries no numbers of its own — only the axis labels and the key.
 The statistics come back with the figure and print as a table
 (`summary_text`); `annotate=True` puts them beside the rows instead.
 
+### Which statistic
+
+`statistic` chooses what each point set draws, and the three values are
+mutually exclusive by design — the graded intervals and the mean error bar
+say much the same thing, and a row carrying both is harder to read than one
+carrying either:
+
+| Value | Drawn |
+|---|---|
+| `'intervals'` (default) | Graded 1σ/2σ/3σ credible-interval bars with the posterior median as an open circle |
+| `'mean'` | Posterior mean as a filled diamond with a ±σ error bar |
+| `'both'` | The two together, the mean offset below the bars |
+
+`'intervals'` is the default because reading a bias off the figure at a stated
+confidence level is what the intervals support. The key and the x-axis limits
+follow the choice, so dropping a statistic can tighten the axis.
+
 ### What each point set shows
 
 | Mark | Meaning |
